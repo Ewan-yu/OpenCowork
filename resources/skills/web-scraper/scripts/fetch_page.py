@@ -10,6 +10,97 @@ Dependencies: pip install requests beautifulsoup4 readability-lxml html2text
 
 import sys
 import argparse
+import random
+import time
+from urllib.parse import urlparse
+
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_1) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
+]
+
+BASE_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Ch-Ua": '"Not/A)Brand";v="8", "Chromium";v="121", "Google Chrome";v="121"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+}
+
+ANTI_BOT_MARKERS = (
+    "captcha",
+    "verify you are human",
+    "security verification",
+    "access denied",
+    "robot check",
+    "访问过于频繁",
+    "安全验证",
+)
+
+
+def build_headers(url: str):
+    parsed = urlparse(url)
+    scheme = parsed.scheme or "https"
+    headers = dict(BASE_HEADERS)
+    headers["User-Agent"] = random.choice(USER_AGENTS)
+
+    if parsed.netloc:
+        headers["Host"] = parsed.netloc
+        origin = f"{scheme}://{parsed.netloc}"
+        headers["Origin"] = origin
+        headers["Referer"] = origin + "/"
+
+    return headers
+
+
+def is_anti_bot_response(html: str, status_code: int) -> bool:
+    if status_code in (403, 429):
+        return True
+
+    snippet = html[:2000].lower()
+    for marker in ANTI_BOT_MARKERS:
+        if marker.lower() in snippet:
+            return True
+
+    return False
+
+
+def try_cloudscraper(url: str, headers: dict, timeout: int):
+    try:
+        import cloudscraper
+    except ImportError:
+        return None
+
+    scraper = cloudscraper.create_scraper(
+        browser={
+            "browser": "chrome",
+            "platform": "windows",
+            "mobile": False,
+        }
+    )
+
+    try:
+        resp = scraper.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        resp.raise_for_status()
+    except Exception:
+        return None
+
+    if resp.encoding and resp.encoding.lower() != 'utf-8':
+        resp.encoding = resp.apparent_encoding or resp.encoding
+
+    return resp.text, resp.url, resp.status_code
 
 
 def setup_encoding():
@@ -54,41 +145,84 @@ def check_dependencies():
         sys.exit(1)
 
 
-def fetch_url(url, timeout=30):
-    """Fetch URL content with proper headers."""
+def fetch_url(url, timeout=30, max_attempts=3):
+    """Fetch URL content, retrying through common anti-bot challenges."""
     import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-    }
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=0,
+        connect=0,
+        read=0,
+        redirect=3,
+        status=0,
+        backoff_factor=0,
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
 
-    try:
-        resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-        resp.raise_for_status()
+    last_error = None
 
-        # Detect encoding
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = session.get(
+                url,
+                headers=build_headers(url),
+                timeout=timeout,
+                allow_redirects=True,
+            )
+        except requests.exceptions.Timeout as e:
+            last_error = f"request timed out after {timeout}s"
+            print(f"Warning: {last_error} (attempt {attempt}/{max_attempts})", file=sys.stderr)
+            if attempt < max_attempts:
+                time.sleep(min(2 ** attempt, 4))
+            continue
+        except requests.exceptions.ConnectionError as e:
+            last_error = f"connection failed: {e}"
+            print(f"Warning: {last_error} (attempt {attempt}/{max_attempts})", file=sys.stderr)
+            if attempt < max_attempts:
+                time.sleep(min(2 ** attempt, 4))
+            continue
+
         if resp.encoding and resp.encoding.lower() != 'utf-8':
             resp.encoding = resp.apparent_encoding or resp.encoding
+        html_text = resp.text
 
-        return resp.text, resp.url, resp.status_code
-    except requests.exceptions.Timeout:
-        print(f"Error: request timed out after {timeout}s", file=sys.stderr)
-        sys.exit(1)
-    except requests.exceptions.ConnectionError as e:
-        print(f"Error: connection failed: {e}", file=sys.stderr)
-        sys.exit(1)
-    except requests.exceptions.HTTPError as e:
-        print(f"Error: HTTP {e.response.status_code}: {e}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        anti_bot = is_anti_bot_response(html_text, resp.status_code)
+
+        if not anti_bot and resp.status_code >= 400:
+            try:
+                resp.raise_for_status()
+            except requests.exceptions.HTTPError as e:
+                last_error = f"HTTP {resp.status_code}: {e}"
+                break
+
+        if not anti_bot:
+            return html_text, resp.url, resp.status_code
+
+        last_error = (
+            f"Detected anti-bot response (status {resp.status_code})"
+        )
+        print(
+            f"Warning: {last_error} - retrying with different headers (attempt {attempt}/{max_attempts})",
+            file=sys.stderr,
+        )
+        if attempt < max_attempts:
+            time.sleep(min(2 ** attempt, 4))
+
+    # cloudscraper fallback for challenging sites
+    scraper_result = try_cloudscraper(url, build_headers(url), timeout)
+    if scraper_result:
+        html, final_url, status = scraper_result
+        if not is_anti_bot_response(html, status):
+            return scraper_result
+
+    error_message = last_error or "unable to fetch page"
+    print(f"Error: {error_message}", file=sys.stderr)
+    sys.exit(1)
 
 
 def extract_with_readability(html, url):
@@ -199,6 +333,8 @@ def main():
                         help="Truncate output to N characters")
     parser.add_argument("--timeout", type=int, default=30,
                         help="Request timeout in seconds (default: 30)")
+    parser.add_argument("--max-attempts", type=int, default=3,
+                        help="Max HTTP attempts before giving up (default: 3)")
     parser.add_argument("--no-metadata", action="store_true",
                         help="Skip metadata header in output")
 
@@ -212,7 +348,7 @@ def main():
     print(f"Fetching: {url}", file=sys.stderr)
 
     # Fetch
-    html, final_url, status = fetch_url(url, timeout=args.timeout)
+    html, final_url, status = fetch_url(url, timeout=args.timeout, max_attempts=args.max_attempts)
     print(f"Status: {status}, Size: {len(html)} bytes", file=sys.stderr)
 
     if final_url != url:

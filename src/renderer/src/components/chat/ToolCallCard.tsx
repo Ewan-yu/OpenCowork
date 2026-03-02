@@ -1243,7 +1243,7 @@ function StructuredInput({
 }
 
 // Tools that auto-expand when they have output (mutation/action tools)
-const EXPAND_TOOLS = new Set(['Edit', 'Write', 'Delete', 'Bash', 'TaskCreate'])
+const EXPAND_TOOLS = new Set(['Edit', 'Write', 'Delete', 'Bash', 'TaskCreate', 'TaskList'])
 
 export function ToolStatusDot({
   status

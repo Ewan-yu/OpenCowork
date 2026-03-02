@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import { toolRegistry } from '../agent/tool-registry'
 import { useTaskStore, type TaskItem } from '../../stores/task-store'
 import { useTeamStore } from '../../stores/team-store'
+import { useUIStore } from '../../stores/ui-store'
 import { teamEvents } from '../agent/teams/events'
 import type { TeamTask } from '../agent/teams/types'
 import type { ToolHandler } from './tool-types'
@@ -24,6 +25,12 @@ function getStandaloneTasks(sessionId?: string): TaskItem[] {
 function getStandaloneTask(taskId: string, sessionId?: string): TaskItem | undefined {
   if (!sessionId) return useTaskStore.getState().getTask(taskId)
   return getStandaloneTasks(sessionId).find((t) => t.id === taskId)
+}
+
+function ensureStepsPanelVisible(): void {
+  const ui = useUIStore.getState()
+  ui.setRightPanelTab('steps')
+  ui.setRightPanelOpen(true)
 }
 
 // ── TaskCreate ──
@@ -85,6 +92,7 @@ const taskCreateHandler: ToolHandler = {
         activeForm,
       }
       teamEvents.emit({ type: 'team_task_add', task })
+      ensureStepsPanelVisible()
       return JSON.stringify({ success: true, task_id: id, subject })
     }
 
@@ -108,6 +116,7 @@ const taskCreateHandler: ToolHandler = {
       updatedAt: Date.now(),
     }
     useTaskStore.getState().addTask(task)
+    ensureStepsPanelVisible()
     return JSON.stringify({ success: true, task_id: id, subject })
   },
   requiresApproval: () => false,
