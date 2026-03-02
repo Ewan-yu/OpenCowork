@@ -3,6 +3,27 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.4] - 2026-03-03
+
+### Added
+- **Docx Creator skill TOC workflow** — documented a dedicated table-of-contents workflow, Markdown guidelines, and troubleshooting steps so agents know exactly how to deliver refreshable TOCs and when to fall back to COM automation.
+- **Docx tool TOC flags** — `docx_tool.py create` now supports `--toc`, `--toc-title`, and `--toc-depth` so generated Word documents include a pre-populated TOC field that users can refresh in Word/LibreOffice.
+- **Tool preview detail panel** — tool cards expose a “view details” action wired into the Detail Panel so long outputs (diffs, shell logs, etc.) can be opened in a focused modal.
+- **Provider fallback metadata** — Azure OpenAI and Routin AI stores inject richer defaults (model families, quota hints, protocol types) enabling provider forms to load even when remote metadata fails.
+
+### Changed
+- **ToolCallCard visual hierarchy** — reworked status badges, typography, and spacing, introduced inline token/line counters, collapsed contexts for diffs, and refreshed per-tool icons to keep long chains scannable.
+- **SubAgent tool list** — SubAgentCard now streams live tool calls using the revamped ToolCallCard layout, keeping iteration stats, elapsed time chips, and copy buttons consistent across live/historical runs.
+- **Filesystem tool UX** — LS/Glob/Grep blocks now expose click-to-insert paths, highlight matches directly in output, and show structured counts so agents can navigate large listings without scrolling dumps.
+- **Skill docs clarity** — docx-creator guide gained a generated table of contents, formatting tips, and explicit dependency recovery instructions to align with the new CLI switches.
+- **ProviderStore hydration** — provider presets merge strategy now keeps custom overrides while ensuring built-in protocols, default models, and thinking configs stay current after app upgrades.
+
+### Fixed
+- **Tool diff folding** — Large inline diffs now fold untouched context with expandable sections, preventing the chat thread from ballooning when applying multi-file patches.
+- **Bash console controls** — background shell cards keep scroll position synced while streaming, expose exit codes reliably, and disable stop/send-input buttons once processes complete.
+- **Detail panel regressions** — resolved missing open/close state in `useUIStore` so clicking any SubAgent/Tool detail button consistently opens the right-side panel.
+- **Docx tool dependency errors** — add explicit python-docx import guard (with install instructions) so missing dependencies surface immediately instead of crashing mid-run.
+
 ## [0.3.3] - 2026-03-02
 
 ### Fixed
