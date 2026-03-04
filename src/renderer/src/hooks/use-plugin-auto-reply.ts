@@ -34,9 +34,7 @@ import type { UnifiedMessage, ProviderConfig } from '@renderer/lib/api/types'
 import type { AgentLoopConfig } from '@renderer/lib/agent/types'
 import type { ToolContext } from '@renderer/lib/tools/tool-types'
 import {
-  hasActiveSessionRunForSession,
   hasPendingSessionMessagesForSession,
-  dispatchNextQueuedMessageForSession
 } from '@renderer/hooks/use-chat-actions'
 
 interface PluginAutoReplyTask {

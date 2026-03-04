@@ -137,6 +137,7 @@ export function applyManualProviderOAuth(providerId: string, rawJson: string): v
   const provider = getProviderById(providerId)
   if (!provider) throw new Error('Provider not found')
   const token = parseManualOAuthPayload(rawJson)
+  if (!token) throw new Error('Invalid OAuth payload')
   setProviderAuth(providerId, {
     authMode: 'oauth',
     oauth: token,

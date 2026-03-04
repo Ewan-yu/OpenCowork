@@ -1,5 +1,4 @@
 import { toolRegistry } from './tool-registry'
-import { subAgentRegistry } from './sub-agents/registry'
 
 /**
  * Build a system prompt for the agent loop that includes tool descriptions
@@ -30,7 +29,6 @@ export function buildSystemPrompt(options: {
   } = options
 
   const toolDefs = options.toolDefs ?? toolRegistry.getDefinitions()
-  const toolList = toolDefs.map((t) => `- **${t.name}**: ${t.description}`).join('\n')
 
   const parts: string[] = []
 
@@ -316,7 +314,7 @@ export function buildSystemPrompt(options: {
         `</user_rules>`
       )
     }
-
-    return parts.join('\n')
   }
+
+  return parts.join('\n')
 }

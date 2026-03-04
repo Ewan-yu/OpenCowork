@@ -55,6 +55,7 @@ interface PluginStore {
 declare global {
   interface Window {
     __pluginListenerActive?: boolean
+    __pluginAutoReplyListenerActive?: boolean
     __pluginDispatchedIds?: Set<string>
   }
 }
