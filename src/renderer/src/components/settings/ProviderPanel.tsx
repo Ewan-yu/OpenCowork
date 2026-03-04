@@ -43,6 +43,7 @@ import {
   startProviderOAuth,
   disconnectProviderOAuth,
   refreshProviderOAuth,
+  applyManualProviderOAuth,
   ensureProviderAuthReady,
   sendProviderChannelCode,
   verifyProviderChannelCode,
@@ -497,6 +498,8 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
   const [showChannelToken, setShowChannelToken] = useState(false)
   const [oauthConnecting, setOauthConnecting] = useState(false)
   const [oauthRefreshing, setOauthRefreshing] = useState(false)
+  const [manualOAuthJson, setManualOAuthJson] = useState('')
+  const [manualOAuthError, setManualOAuthError] = useState('')
   const [channelSending, setChannelSending] = useState(false)
   const [channelVerifying, setChannelVerifying] = useState(false)
   const [channelRefreshing, setChannelRefreshing] = useState(false)
@@ -606,6 +609,8 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
     setChannelMobile('')
     setChannelEmail('')
     setChannelCode('')
+    setManualOAuthJson('')
+    setManualOAuthError('')
   }, [provider.id])
 
   const oauthConfig = provider.oauthConfig ?? { authorizeUrl: '', tokenUrl: '', clientId: '' }
@@ -736,6 +741,27 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
       clearQuota('codex')
     }
     toast.success(t('provider.oauthDisconnected'))
+  }
+
+  const resolveManualOAuthError = (err: unknown): string => {
+    const code = err instanceof Error ? err.message : ''
+    if (code === 'invalid_json') return t('provider.oauthManualInvalidJson')
+    if (code === 'invalid_json_object') return t('provider.oauthManualInvalidJsonObj')
+    if (code === 'missing_access_token') return t('provider.oauthManualMissingAccessToken')
+    return t('provider.oauthManualApplyFailed')
+  }
+
+  const handleManualOAuthApply = (): void => {
+    setManualOAuthError('')
+    try {
+      applyManualProviderOAuth(provider.id, manualOAuthJson)
+      setManualOAuthJson('')
+      toast.success(t('provider.oauthManualApplied'))
+    } catch (err) {
+      const message = resolveManualOAuthError(err)
+      setManualOAuthError(message)
+      toast.error(message)
+    }
   }
 
   const handleChannelSendCode = async (): Promise<void> => {
@@ -1026,6 +1052,47 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
             {!hideOAuthSettings && !oauthConfigReady && (
               <p className="text-[11px] text-muted-foreground">{t('provider.oauthConfigMissing')}</p>
             )}
+          </section>
+        )}
+
+        {isOAuthAuth && isCodexProvider && (
+          <section className="space-y-2">
+            <label className="text-sm font-medium">{t('provider.oauthManualTitle')}</label>
+            <p className="text-[11px] text-muted-foreground">{t('provider.oauthManualDesc')}</p>
+            <textarea
+              value={manualOAuthJson}
+              onChange={(e) => {
+                setManualOAuthJson(e.target.value)
+                if (manualOAuthError) setManualOAuthError('')
+              }}
+              placeholder={t('provider.oauthManualPlaceholder')}
+              className="w-full h-28 rounded-md border bg-muted/30 px-3 py-2 font-mono text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+              spellCheck={false}
+            />
+            {manualOAuthError && (
+              <p className="text-[11px] text-destructive">{manualOAuthError}</p>
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                disabled={!manualOAuthJson.trim()}
+                onClick={handleManualOAuthApply}
+              >
+                {t('provider.oauthManualApply')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setManualOAuthJson('')
+                  setManualOAuthError('')
+                }}
+              >
+                {t('action.clear', { ns: 'common' })}
+              </Button>
+            </div>
           </section>
         )}
 
