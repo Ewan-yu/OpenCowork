@@ -3,6 +3,19 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.4.1] - 2026-03-06
+
+### Added
+- **Project selector** — introduced project switching UI and improved provider configuration flows.
+- **Routin AI GPT 5.4 model** — added preset support for the new model tier.
+
+### Changed
+- **Chat home page** — redesigned layout and UI components for a refreshed landing experience.
+- **Channel naming** — renamed the plugin system to the channel system across the app.
+- **Xiaohongshu search skill** — simplified to search-only functionality.
+- **README** — updated documentation content.
+- **Version** — bumped to 0.4.1.
+
 ## [0.4.0] - 2026-03-04
 
 ### Added
