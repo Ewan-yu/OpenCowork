@@ -3,6 +3,29 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.5.0] - 2026-03-09
+
+### Added
+- **Agent Loop Engine** — Streaming async generator-based agent execution with automatic tool calling and decision iteration
+- **Agent Team Collaboration** — Dynamic multi-agent team formation, parallel task execution, and collaborative complex workflow handling
+- **7 Messaging Platform Plugins** — Unified plugin factory pattern supporting Feishu, DingTalk, QQ, Telegram, Discord, WhatsApp, and WeCom
+- **MCP Protocol Support** — Built-in Model Context Protocol integration for easy extension of agent tool sets and context capabilities
+- **Local Code Workflows** — Direct file reading/writing, shell command execution, and code search within local workspaces for true code-level collaboration automation
+- **Multi-Model Support** — Compatibility with 18+ major LLMs including OpenAI, Anthropic, DeepSeek, and Google, with vision and deep thinking mode support
+- **Modern UI Overhaul** — Redesigned homepage, download page, and feature panels with dark/light theme switching
+
+### Changed
+- Bumped main application version from 0.4.7 → 0.5.0
+- Updated documentation homepage version display from v0.4.6 → v0.5.0
+- Optimized system prompt logic and enhanced agent decision-making
+- Improved AskUser tool interaction flow for more flexible user input collection
+- Refactored core component code for better performance and maintainability
+
+### Fixed
+- Resolved React 19 compatibility warnings in documentation site builds
+- Fixed type errors in animation components
+- Updated dependency management to address potential security vulnerabilities
+
 ## [0.4.6] - 2026-03-09
 
 ### Added
