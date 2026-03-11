@@ -381,8 +381,8 @@
     "agentReviewFailed": "Failed",
     "agentReviewing": "Reviewing...",
     "downloading": "Downloading...",
-    "noApiKeyTitle": "SkillsMP API key not configured",
-    "noApiKeyDesc": "Set your API key via the \u2699\ufe0f icon in the top bar to browse the SkillsMP marketplace.",
+    "noApiKeyTitle": "OpenCoWork Skills API key not configured",
+    "noApiKeyDesc": "Set your API key via the \u2699\ufe0f icon in the top bar to browse the skills.open-cowork.shop marketplace.",
     "getApiKey": "Get API Key"
   }
 }

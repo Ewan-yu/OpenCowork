@@ -1628,7 +1628,10 @@ export function useChatActions(): {
                   type: 'tool_use',
                   id: event.toolCallId,
                   name: event.toolName,
-                  input: {}
+                  input: {},
+                  ...(event.toolCallExtraContent
+                    ? { extraContent: event.toolCallExtraContent }
+                    : {})
                 })
                 useAgentStore.getState().addToolCall({
                   id: event.toolCallId,

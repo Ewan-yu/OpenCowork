@@ -233,7 +233,7 @@ interface ChatStore {
     sessionId: string,
     msgId: string,
     encryptedContent: string,
-    provider: 'anthropic' | 'openai-responses'
+    provider: 'anthropic' | 'openai-responses' | 'google'
   ) => void
   completeThinking: (sessionId: string, msgId: string) => void
   appendToolUse: (sessionId: string, msgId: string, toolUse: ToolUseBlock) => void

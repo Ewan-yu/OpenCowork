@@ -89,14 +89,35 @@ export type AgentEvent =
   | {
       type: 'thinking_encrypted'
       thinkingEncryptedContent: string
-      thinkingEncryptedProvider: 'anthropic' | 'openai-responses'
+      thinkingEncryptedProvider: 'anthropic' | 'openai-responses' | 'google'
     }
   | { type: 'image_generated'; imageBlock: ImageBlock }
   | { type: 'image_error'; imageError: { code: ImageErrorCode; message: string } }
   | { type: 'message_end'; usage?: TokenUsage; timing?: RequestTiming }
-  | { type: 'tool_use_streaming_start'; toolCallId: string; toolName: string }
+  | {
+      type: 'tool_use_streaming_start'
+      toolCallId: string
+      toolName: string
+      toolCallExtraContent?: {
+        google?: {
+          thought_signature?: string
+        }
+      }
+    }
   | { type: 'tool_use_args_delta'; toolCallId: string; partialInput: Record<string, unknown> }
-  | { type: 'tool_use_generated'; toolUseBlock: { id: string; name: string; input: Record<string, unknown> } }
+  | {
+      type: 'tool_use_generated'
+      toolUseBlock: {
+        id: string
+        name: string
+        input: Record<string, unknown>
+        extraContent?: {
+          google?: {
+            thought_signature?: string
+          }
+        }
+      }
+    }
   | { type: 'tool_call_start'; toolCall: ToolCallState }
   | { type: 'tool_call_approval_needed'; toolCall: ToolCallState }
   | { type: 'tool_call_result'; toolCall: ToolCallState }

@@ -5,6 +5,8 @@ COPY package.json ./
 RUN npm install
 COPY . .
 # Build Windows and Linux apps
+# Default Node heap is small in container; bump for Vite bundle step
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build:win && npm run build:linux
 
 # ── docs-deps ──────────────────────────────────────────────

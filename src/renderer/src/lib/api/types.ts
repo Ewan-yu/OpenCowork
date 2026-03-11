@@ -53,6 +53,11 @@ export interface ToolUseBlock {
   id: string
   name: string
   input: Record<string, unknown>
+  extraContent?: {
+    google?: {
+      thought_signature?: string
+    }
+  }
 }
 
 export type ToolResultContent = string | Array<TextBlock | ImageBlock>
@@ -70,7 +75,7 @@ export interface ThinkingBlock {
   /** Provider-issued encrypted/signature payload for reasoning continuity validation */
   encryptedContent?: string
   /** Which provider emitted encryptedContent (used to replay only to compatible APIs) */
-  encryptedContentProvider?: 'anthropic' | 'openai-responses'
+  encryptedContentProvider?: 'anthropic' | 'openai-responses' | 'google'
   startedAt?: number
   completedAt?: number
 }
@@ -125,11 +130,16 @@ export interface StreamEvent {
   text?: string
   thinking?: string
   thinkingEncryptedContent?: string
-  thinkingEncryptedProvider?: 'anthropic' | 'openai-responses'
+  thinkingEncryptedProvider?: 'anthropic' | 'openai-responses' | 'google'
   toolCallId?: string
   toolName?: string
   argumentsDelta?: string
   toolCallInput?: Record<string, unknown>
+  toolCallExtraContent?: {
+    google?: {
+      thought_signature?: string
+    }
+  }
   imageBlock?: ImageBlock
   imageError?: { code: ImageErrorCode; message: string }
   stopReason?: string

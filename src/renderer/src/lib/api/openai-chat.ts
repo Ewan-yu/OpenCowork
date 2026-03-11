@@ -42,6 +42,19 @@ function applyBodyOverrides(body: Record<string, unknown>, config: ProviderConfi
   }
 }
 
+function isGoogleOpenAICompatible(config: ProviderConfig): boolean {
+  if (config.providerBuiltinId === 'google') return true
+  const baseUrl = (config.baseUrl || '').trim()
+  return /generativelanguage\.googleapis\.com/i.test(baseUrl)
+}
+
+function getGoogleThoughtSignature(
+  toolCall: { extra_content?: { google?: { thought_signature?: string } } } | null | undefined
+): string | undefined {
+  const signature = toolCall?.extra_content?.google?.thought_signature
+  return typeof signature === 'string' && signature.trim() ? signature : undefined
+}
+
 class OpenAIChatProvider implements APIProvider {
   readonly name = 'OpenAI Chat Completions'
   readonly type = 'openai-chat' as const
@@ -57,10 +70,11 @@ class OpenAIChatProvider implements APIProvider {
     let outputTokens = 0
     const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').trim().replace(/\/+$/, '')
     const isOpenAI = /^https?:\/\/api\.openai\.com/i.test(baseUrl)
+    const isGoogleCompatible = isGoogleOpenAICompatible(config)
 
     const body: Record<string, unknown> = {
       model: config.model,
-      messages: this.formatMessages(messages, config.systemPrompt),
+      messages: this.formatMessages(messages, config.systemPrompt, config),
       stream: true,
       stream_options: { include_usage: true }
     }
@@ -126,7 +140,16 @@ class OpenAIChatProvider implements APIProvider {
       }
     }
 
-    const toolBuffers = new Map<number, { id: string; name: string; args: string }>()
+    const toolBuffers = new Map<
+      number,
+      {
+        id: string
+        name: string
+        args: string
+        extraContent?: { google?: { thought_signature?: string } }
+      }
+    >()
+    let lastGoogleThoughtSignature: string | undefined
 
     streamLoop: for await (const sse of ipcStreamRequest({
       url,
@@ -178,6 +201,14 @@ class OpenAIChatProvider implements APIProvider {
         yield { type: 'thinking_delta', thinking: delta.reasoning_content }
       }
 
+      if (delta?.reasoning_encrypted_content && isGoogleCompatible) {
+        yield {
+          type: 'thinking_encrypted',
+          thinkingEncryptedContent: delta.reasoning_encrypted_content,
+          thinkingEncryptedProvider: 'google'
+        }
+      }
+
       if (delta?.content) {
         if (firstTokenAt === null) firstTokenAt = Date.now()
         yield { type: 'text_delta', text: delta.content }
@@ -186,22 +217,49 @@ class OpenAIChatProvider implements APIProvider {
       if (delta?.tool_calls) {
         for (const tc of delta.tool_calls) {
           const idx = tc.index ?? 0
+          const googleThoughtSignature = isGoogleCompatible ? getGoogleThoughtSignature(tc) : undefined
+          const googleExtraContent = googleThoughtSignature
+            ? { google: { thought_signature: googleThoughtSignature } }
+            : undefined
+
+          if (googleThoughtSignature && googleThoughtSignature !== lastGoogleThoughtSignature) {
+            lastGoogleThoughtSignature = googleThoughtSignature
+            yield {
+              type: 'thinking_encrypted',
+              thinkingEncryptedContent: googleThoughtSignature,
+              thinkingEncryptedProvider: 'google'
+            }
+          }
 
           let buf = toolBuffers.get(idx)
 
           if (!buf) {
-            buf = { id: tc.id ?? '', name: tc.function?.name ?? '', args: '' }
+            buf = {
+              id: tc.id ?? '',
+              name: tc.function?.name ?? '',
+              args: '',
+              extraContent: googleExtraContent
+            }
             toolBuffers.set(idx, buf)
             if (tc.id) {
-              yield { type: 'tool_call_start', toolCallId: tc.id, toolName: tc.function?.name }
+              yield {
+                type: 'tool_call_start',
+                toolCallId: tc.id,
+                toolName: tc.function?.name,
+                ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
+              }
             }
           } else {
+            if (googleExtraContent && !buf.extraContent) {
+              buf.extraContent = googleExtraContent
+            }
             if (tc.id && !buf.id) {
               buf.id = tc.id
               yield {
                 type: 'tool_call_start',
                 toolCallId: tc.id,
-                toolName: buf.name || tc.function?.name
+                toolName: buf.name || tc.function?.name,
+                ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
               }
             }
             if (tc.function?.name && !buf.name) buf.name = tc.function.name
@@ -228,14 +286,16 @@ class OpenAIChatProvider implements APIProvider {
               type: 'tool_call_end',
               toolCallId: buf.id,
               toolName: buf.name,
-              toolCallInput: JSON.parse(buf.args)
+              toolCallInput: JSON.parse(buf.args),
+              ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
             }
           } catch {
             yield {
               type: 'tool_call_end',
               toolCallId: buf.id,
               toolName: buf.name,
-              toolCallInput: {}
+              toolCallInput: {},
+              ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
             }
           }
         }
@@ -323,18 +383,26 @@ class OpenAIChatProvider implements APIProvider {
             type: 'tool_call_end',
             toolCallId: buf.id,
             toolName: buf.name,
-            toolCallInput: JSON.parse(buf.args)
+            toolCallInput: JSON.parse(buf.args),
+            ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
           }
         } catch {
-          yield { type: 'tool_call_end', toolCallId: buf.id, toolName: buf.name, toolCallInput: {} }
+          yield {
+            type: 'tool_call_end',
+            toolCallId: buf.id,
+            toolName: buf.name,
+            toolCallInput: {},
+            ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
+          }
         }
       }
       toolBuffers.clear()
     }
   }
 
-  formatMessages(messages: UnifiedMessage[], systemPrompt?: string): unknown[] {
+  formatMessages(messages: UnifiedMessage[], systemPrompt?: string, config?: ProviderConfig): unknown[] {
     const formatted: unknown[] = []
+    const isGoogleCompatible = config ? isGoogleOpenAICompatible(config) : false
 
     if (systemPrompt) {
       formatted.push({ role: 'system', content: systemPrompt })
@@ -413,20 +481,39 @@ class OpenAIChatProvider implements APIProvider {
       const reasoningContent = thinkingBlocks
         .map((b) => (b.type === 'thinking' ? b.thinking : ''))
         .join('')
+      const googleThinkingSignature = isGoogleCompatible
+        ? [...thinkingBlocks]
+            .reverse()
+            .find(
+              (b) =>
+                b.type === 'thinking' &&
+                b.encryptedContent &&
+                (b.encryptedContentProvider === 'google' || !b.encryptedContentProvider)
+            )?.encryptedContent
+        : undefined
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const msg: any = { role: 'assistant', content: textContent || null }
-      // Preserve reasoning context for models that support it (DeepSeek R1, QwQ, etc.)
       if (reasoningContent) msg.reasoning_content = reasoningContent
+      if (googleThinkingSignature) {
+        msg.reasoning_encrypted_content = googleThinkingSignature
+      }
 
       if (toolUses.length > 0) {
         msg.tool_calls = toolUses
           .map((tu) => {
             if (tu.type !== 'tool_use') return null
+            const extraContent = isGoogleCompatible
+              ? (tu.extraContent ??
+                (googleThinkingSignature
+                  ? { google: { thought_signature: googleThinkingSignature } }
+                  : undefined))
+              : undefined
             return {
               id: tu.id,
               type: 'function',
-              function: { name: tu.name, arguments: JSON.stringify(tu.input) }
+              function: { name: tu.name, arguments: JSON.stringify(tu.input) },
+              ...(extraContent ? { extra_content: extraContent } : {})
             }
           })
           .filter(Boolean)

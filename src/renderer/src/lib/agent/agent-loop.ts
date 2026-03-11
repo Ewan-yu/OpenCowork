@@ -101,6 +101,14 @@ export async function* runAgentLoop(
       toolCalls = []
       const toolArgsById = new Map<string, string>()
       const toolNamesById = new Map<string, string>()
+      const toolExtraContentById = new Map<
+        string,
+        {
+          google?: {
+            thought_signature?: string
+          }
+        }
+      >()
       let currentToolId = ''
       let currentToolName = ''
       let streamedContent = false
@@ -176,9 +184,19 @@ export async function* runAgentLoop(
               if (currentToolId) {
                 toolArgsById.set(currentToolId, '')
                 toolNamesById.set(currentToolId, currentToolName)
+                if (event.toolCallExtraContent) {
+                  toolExtraContentById.set(currentToolId, event.toolCallExtraContent)
+                }
               }
               // Immediately notify UI so it can render the tool card while args stream
-              yield { type: 'tool_use_streaming_start', toolCallId: currentToolId, toolName: currentToolName }
+              yield {
+                type: 'tool_use_streaming_start',
+                toolCallId: currentToolId,
+                toolName: currentToolName,
+                ...(event.toolCallExtraContent
+                  ? { toolCallExtraContent: event.toolCallExtraContent }
+                  : {})
+              }
               break
 
             case 'tool_call_delta':
@@ -214,10 +232,12 @@ export async function* runAgentLoop(
                 id: endToolId,
                 name: endToolName,
                 input: toolInput,
+                extraContent: event.toolCallExtraContent ?? toolExtraContentById.get(endToolId),
               }
               assistantContentBlocks.push(toolUseBlock)
               toolArgsById.delete(endToolId)
               toolNamesById.delete(endToolId)
+              toolExtraContentById.delete(endToolId)
 
               const requiresApproval = config.forceApproval || toolRegistry.checkRequiresApproval(
                 endToolName,
@@ -233,7 +253,15 @@ export async function* runAgentLoop(
                 requiresApproval,
               }
               toolCalls.push(tc)
-              yield { type: 'tool_use_generated', toolUseBlock: { id: toolUseBlock.id, name: endToolName, input: toolInput } }
+              yield {
+                type: 'tool_use_generated',
+                toolUseBlock: {
+                  id: toolUseBlock.id,
+                  name: endToolName,
+                  input: toolInput,
+                  ...(toolUseBlock.extraContent ? { extraContent: toolUseBlock.extraContent } : {})
+                }
+              }
               break;
             }
 
@@ -275,6 +303,7 @@ export async function* runAgentLoop(
               id: danglingToolId,
               name: danglingName,
               input: danglingInput,
+              extraContent: toolExtraContentById.get(danglingToolId),
             }
             assistantContentBlocks.push(toolUseBlock)
             toolCalls.push({
@@ -438,7 +467,7 @@ function appendThinkingToBlocks(blocks: ContentBlock[], thinking: string): void 
 function appendThinkingEncryptedToBlocks(
   blocks: ContentBlock[],
   encryptedContent: string,
-  provider: 'anthropic' | 'openai-responses'
+  provider: 'anthropic' | 'openai-responses' | 'google'
 ): void {
   if (!encryptedContent) return
 

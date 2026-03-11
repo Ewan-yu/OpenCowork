@@ -109,7 +109,6 @@ win:
   executableName: OpenCoWork
   icon: build/icon.ico
   legalTrademarks: OpenCoWork
-  fileDescription: OpenCoWork
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
