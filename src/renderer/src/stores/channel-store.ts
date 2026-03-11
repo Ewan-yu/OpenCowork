@@ -24,7 +24,7 @@ interface ChannelStore {
   loadChannels: () => Promise<void>
 
   // CRUD
-  addChannel: (type: string, name: string, config: Record<string, string>, systemPrompt?: string) => Promise<string>
+  addChannel: (type: string, name: string, config: Record<string, string>) => Promise<string>
   updateChannel: (id: string, patch: Partial<PluginInstance>) => Promise<void>
   removeChannel: (id: string) => Promise<void>
   toggleChannelEnabled: (id: string) => Promise<void>
@@ -154,7 +154,7 @@ export const useChannelStore = create<ChannelStore>((set, get) => ({
     }
   },
 
-  addChannel: async (type, name, config, systemPrompt) => {
+  addChannel: async (type, name, config) => {
     const id = nanoid()
     const desc = get().providers.find((p) => p.type === type)
     const tools = desc?.tools?.reduce<Record<string, boolean>>((acc, toolName) => {
@@ -166,7 +166,6 @@ export const useChannelStore = create<ChannelStore>((set, get) => ({
       type,
       name,
       enabled: true,
-      userSystemPrompt: systemPrompt ?? '',
       config,
       createdAt: Date.now(),
       ...(tools ? { tools } : {}),

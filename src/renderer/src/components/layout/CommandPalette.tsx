@@ -83,7 +83,6 @@ export function CommandPalette(): React.JSX.Element {
   const deleteSession = useChatStore((s) => s.deleteSession)
   const togglePinSession = useChatStore((s) => s.togglePinSession)
   const updateSessionMode = useChatStore((s) => s.updateSessionMode)
-
   const mode = useUIStore((s) => s.mode)
   const chatView = useUIStore((s) => s.chatView)
   const setMode = useUIStore((s) => s.setMode)
@@ -233,15 +232,11 @@ export function CommandPalette(): React.JSX.Element {
 
         <CommandSeparator />
 
-        {/* Mode Switch */}
+        <CommandSeparator />
+
         <CommandGroup heading={t('commandPalette.switchMode')}>
           {(
             [
-              {
-                value: 'chat' as AppMode,
-                label: t('commandPalette.switchToChat'),
-                icon: <MessageSquare className="size-4" />
-              },
               {
                 value: 'clarify' as AppMode,
                 label: t('commandPalette.switchToClarify'),

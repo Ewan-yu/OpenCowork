@@ -208,7 +208,7 @@ interface UIStore {
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
-  mode: 'chat',
+  mode: 'cowork',
 
   setMode: (mode) => set({ mode, rightPanelOpen: mode === 'cowork' }),
 

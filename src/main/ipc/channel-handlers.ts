@@ -117,7 +117,6 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
           name: descriptor.displayName,
           enabled: false,
           builtin: true,
-          userSystemPrompt: '',
           config,
           createdAt: Date.now(),
           tools: buildToolsMap(descriptor),

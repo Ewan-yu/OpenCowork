@@ -15,7 +15,6 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
-import { Textarea } from '@renderer/components/ui/textarea'
 import { Switch } from '@renderer/components/ui/switch'
 import { Separator } from '@renderer/components/ui/separator'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
@@ -98,7 +97,6 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
 
   const [localName, setLocalName] = useState(plugin.name)
   const [localConfig, setLocalConfig] = useState(plugin.config)
-  const [localSystemPrompt, setLocalSystemPrompt] = useState(plugin.userSystemPrompt)
   const [localModel, setLocalModel] = useState(plugin.model ?? '')
   const [localFeatures, setLocalFeatures] = useState<PluginFeatures>(
     plugin.features ?? { autoReply: true, streamingReply: true, autoStart: true }
@@ -113,7 +111,6 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
   useEffect(() => {
     setLocalName(plugin.name)
     setLocalConfig(plugin.config)
-    setLocalSystemPrompt(plugin.userSystemPrompt)
     setLocalModel(plugin.model ?? '')
     setLocalFeatures(plugin.features ?? { autoReply: true, streamingReply: true, autoStart: true })
     setLocalTools(plugin.tools ?? {})
@@ -151,11 +148,6 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
     const newConfig = { ...localConfig, [key]: value }
     setLocalConfig(newConfig)
     debouncedSave({ config: newConfig })
-  }
-
-  const handleSystemPromptChange = (value: string): void => {
-    setLocalSystemPrompt(value)
-    debouncedSave({ userSystemPrompt: value })
   }
 
   const handleModelChange = (value: string, providerId?: string): void => {
@@ -278,22 +270,6 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
           </div>
         </section>
       ))}
-
-      <Separator className="mb-4" />
-
-      {/* System Prompt — empty, user-fillable */}
-      <section className="space-y-2 mb-4">
-        <label className="text-xs font-medium">{t('channel.systemPrompt', 'System Prompt')}</label>
-        <Textarea
-          className="min-h-[80px] text-xs resize-none"
-          value={localSystemPrompt}
-          onChange={(e) => handleSystemPromptChange(e.target.value)}
-          placeholder={t(
-            'plugin.systemPromptPlaceholder',
-            "Optional: set a custom system prompt for this plugin's auto-replies..."
-          )}
-        />
-      </section>
 
       <Separator className="mb-4" />
 

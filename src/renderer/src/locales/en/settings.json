@@ -46,7 +46,7 @@
     "teamToolsDesc": "Enable Agent Team collaboration, allowing AI to create and manage parallel teams",
     "teamToolsEnabled": "Enabled: AI can use TeamCreate, Task(run_in_background) and other tools for multi-agent collaboration",
     "clarifyAutoAcceptRecommended": "Clarify auto-accept recommended answers",
-    "clarifyAutoAcceptRecommendedDesc": "Off by default. Only applies in Clarify mode; when every AskUserQuestion has a recommended option, it automatically selects and submits the recommended answers.",
+    "clarifyAutoAcceptRecommendedDesc": "Off by default. Only applies in Clarify mode; when enabled, inline prompt recommendations start an 8-second countdown and automatically accept the current suggestion.",
     "autoApprove": "Auto-approve tool calls",
     "autoApproveDesc": "Skip permission confirmation for all tool calls",
     "autoApproveWarning": "Dangerous: All tool calls will execute automatically without confirmation",

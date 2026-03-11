@@ -14,7 +14,7 @@ const shortcutGroups = [
     labelKey: 'general',
     items: [
       { keys: 'Ctrl+N', descKey: 'newConversation' },
-      { keys: 'Ctrl+Shift+N', descKey: 'newSessionNextMode' },
+      { keys: 'Ctrl+Shift+N', descKey: 'newConversation' },
       { keys: 'Ctrl+D', descKey: 'duplicateSession' },
       { keys: 'Ctrl+P', descKey: 'pinUnpinSession' },
       { keys: 'Ctrl+,', descKey: 'openSettings' },

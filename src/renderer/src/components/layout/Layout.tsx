@@ -1,6 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import {
-  MessageSquare,
   CircleHelp,
   Briefcase,
   Code2,
@@ -55,11 +54,11 @@ import { PageTransition, PanelTransition } from '@renderer/components/animate-ui
 import { useShallow } from 'zustand/react/shallow'
 
 const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
-  { value: 'chat', labelKey: 'mode.chat', icon: <MessageSquare className="size-3.5" /> },
   { value: 'clarify', labelKey: 'mode.clarify', icon: <CircleHelp className="size-3.5" /> },
   { value: 'cowork', labelKey: 'mode.cowork', icon: <Briefcase className="size-3.5" /> },
   { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-3.5" /> }
 ]
+
 const DEFAULT_SSH_WORKDIR = ''
 
 interface DesktopDirectoryOption {
@@ -203,16 +202,6 @@ export function Layout(): React.JSX.Element {
     }
   }, [mode])
 
-  useEffect(() => {
-    void initBackgroundProcessTracking()
-  }, [initBackgroundProcessTracking])
-
-  useEffect(() => {
-    if (!folderDialogOpen) {
-      setSshDirEditingId(null)
-    }
-  }, [folderDialogOpen])
-
   const handleModeChange = useCallback(
     (nextMode: AppMode): void => {
       setMode(nextMode)
@@ -222,6 +211,16 @@ export function Layout(): React.JSX.Element {
     },
     [activeSessionId, chatView, setMode, updateSessionMode]
   )
+
+  useEffect(() => {
+    void initBackgroundProcessTracking()
+  }, [initBackgroundProcessTracking])
+
+  useEffect(() => {
+    if (!folderDialogOpen) {
+      setSshDirEditingId(null)
+    }
+  }, [folderDialogOpen])
 
   useEffect(() => {
     if (mode === 'chat') {
@@ -313,15 +312,17 @@ export function Layout(): React.JSX.Element {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent): Promise<void> => {
-      // Ctrl+Shift+N: New session in next mode — navigate to home
+      // Ctrl+Shift+N: New session — navigate to home
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'N' || e.key === 'n')) {
         e.preventDefault()
-        const modes = ['chat', 'clarify', 'cowork', 'code'] as const
-        const nextMode = modes[(modes.indexOf(mode) + 1) % modes.length]
-        useUIStore.getState().setMode(nextMode)
         useUIStore.getState().navigateToHome()
-        toast.success(t('layout.newModeSession', { mode: nextMode }))
         return
+      }
+      // Ctrl+1/2/3: Switch mode
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && ['1', '2', '3'].includes(e.key)) {
+        e.preventDefault()
+        const modeMap = { '1': 'clarify', '2': 'cowork', '3': 'code' } as const
+        handleModeChange(modeMap[e.key as '1' | '2' | '3'])
       }
       // Ctrl+N: New chat — navigate to home
       if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
@@ -332,12 +333,6 @@ export function Layout(): React.JSX.Element {
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault()
         useUIStore.getState().openSettingsPage()
-      }
-      // Ctrl+1/2/3/4: Switch mode
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && ['1', '2', '3', '4'].includes(e.key)) {
-        e.preventDefault()
-        const modeMap = { '1': 'chat', '2': 'clarify', '3': 'cowork', '4': 'code' } as const
-        handleModeChange(modeMap[e.key as '1' | '2' | '3' | '4'])
       }
       // Ctrl+B: Toggle left sidebar
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'b') {
@@ -581,8 +576,7 @@ export function Layout(): React.JSX.Element {
     stopStreaming,
     streamingMessageId,
     t,
-    getActiveSessionSnapshot,
-    handleModeChange
+    getActiveSessionSnapshot
   ])
 
   const resolveActiveProjectId = async (): Promise<string | null> => {
@@ -1031,10 +1025,7 @@ export function Layout(): React.JSX.Element {
                                       className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
                                       onClick={() => void loadDesktopDirectories()}
                                     >
-                                      {tCommon('action.refresh', {
-                                        ns: 'common',
-                                        defaultValue: 'Refresh'
-                                      })}
+                                      {t('layout.refresh', { defaultValue: 'Refresh' })}
                                     </button>
                                   </div>
 

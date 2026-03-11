@@ -95,7 +95,7 @@ Start by asking me what I want to build.`
 export function buildSystemPrompt(options: {
   mode: 'clarify' | 'cowork' | 'code'
   workingFolder?: string
-  userSystemPrompt?: string
+  userRules?: string
   toolDefs?: import('../api/types').ToolDefinition[]
   language?: string
   planMode?: boolean
@@ -108,7 +108,7 @@ export function buildSystemPrompt(options: {
   const {
     mode,
     workingFolder,
-    userSystemPrompt,
+    userRules,
     language,
     planMode,
     hasActiveTeam,
@@ -427,12 +427,12 @@ export function buildSystemPrompt(options: {
       )
     }
 
-    // ── User's Custom System Prompt ──
-    if (userSystemPrompt) {
+    // ── User-Defined Rules ──
+    if (userRules) {
       parts.push(
         `\n<user_rules>`,
         `The following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any other instructions.`,
-        `${userSystemPrompt}`,
+        `${userRules}`,
         `</user_rules>`
       )
     }

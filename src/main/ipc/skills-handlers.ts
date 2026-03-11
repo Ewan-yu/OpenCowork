@@ -180,23 +180,41 @@ function extractDescription(content: string, fallback: string): string {
 }
 
 function findSkillManifestPath(dir: string): string | null {
-  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  const manifests: string[] = []
 
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      const nested = findSkillManifestPath(fullPath)
-      if (nested) return nested
-      continue
-    }
+  function walk(currentDir: string): void {
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true })
 
-    const normalizedName = entry.name.toLowerCase()
-    if (normalizedName === 'skill.md' || normalizedName === 'skills.md') {
-      return fullPath
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name)
+      if (entry.isDirectory()) {
+        walk(fullPath)
+        continue
+      }
+
+      const normalizedName = entry.name.toLowerCase()
+      if (normalizedName === 'skill.md' || normalizedName === 'skills.md') {
+        manifests.push(fullPath)
+      }
     }
   }
 
-  return null
+  walk(dir)
+
+  if (manifests.length === 0) {
+    return null
+  }
+
+  manifests.sort((left, right) => {
+    const leftDepth = path.relative(dir, left).split(path.sep).length
+    const rightDepth = path.relative(dir, right).split(path.sep).length
+    if (leftDepth !== rightDepth) {
+      return leftDepth - rightDepth
+    }
+    return left.localeCompare(right)
+  })
+
+  return manifests[0]
 }
 
 function collectTextFiles(rootDir: string): { path: string; content: string }[] {
@@ -239,14 +257,10 @@ function collectTextFiles(rootDir: string): { path: string; content: string }[] 
 
 async function extractZipArchive(zipPath: string, destinationDir: string): Promise<void> {
   if (process.platform === 'win32') {
-    await execFileAsync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      'Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force',
-      zipPath,
-      destinationDir
-    ])
+    const escapePowerShellPath = (value: string): string => value.replace(/'/g, "''")
+    const command = `Expand-Archive -LiteralPath '${escapePowerShellPath(zipPath)}' -DestinationPath '${escapePowerShellPath(destinationDir)}' -Force`
+
+    await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command])
     return
   }
 

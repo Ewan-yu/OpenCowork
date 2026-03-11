@@ -52,7 +52,6 @@ export interface ChannelInstance {
   name: string
   enabled: boolean
   builtin?: boolean
-  userSystemPrompt: string
   config: Record<string, string>
   createdAt: number
   /** Per-tool enablement flags (missing = default enabled) */

@@ -37,11 +37,11 @@ import {
 } from '@renderer/components/ui/dropdown-menu'
 
 const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
-  { value: 'chat', labelKey: 'mode.chat', icon: <MessageSquare className="size-3.5" /> },
   { value: 'clarify', labelKey: 'mode.clarify', icon: <CircleHelp className="size-3.5" /> },
   { value: 'cowork', labelKey: 'mode.cowork', icon: <Briefcase className="size-3.5" /> },
   { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-3.5" /> }
 ]
+
 const DEFAULT_SSH_WORKDIR = ''
 interface DesktopDirectoryOption {
   name: string
@@ -321,7 +321,6 @@ export function ChatHomePage(): React.JSX.Element {
   return (
     <div className="flex flex-1 flex-col overflow-auto bg-gradient-to-b from-background via-background to-muted/20">
       <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center px-4 py-8">
-        {/* Mode switcher */}
         <div className="mb-5 flex justify-center">
           <div className="flex items-center gap-0.5 rounded-xl border border-border/50 bg-background/95 p-0.5 shadow-md backdrop-blur-sm">
             {modes.map((m, i) => (
@@ -336,12 +335,7 @@ export function ChatHomePage(): React.JSX.Element {
                         ? 'bg-background shadow-sm ring-1 ring-border/50'
                         : 'text-muted-foreground hover:text-foreground'
                     )}
-                    onClick={() => {
-                      setMode(m.value)
-                      if (m.value === 'chat') {
-                        setFolderDialogOpen(false)
-                      }
-                    }}
+                    onClick={() => setMode(m.value)}
                   >
                     {m.icon}
                     {tCommon(m.labelKey)}

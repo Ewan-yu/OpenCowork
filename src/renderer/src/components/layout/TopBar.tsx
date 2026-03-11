@@ -1,5 +1,5 @@
 import {
-  MessageSquare,
+  CircleHelp,
   Briefcase,
   Code2,
   Settings,
@@ -28,7 +28,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { WindowControls } from './WindowControls'
 
 const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
-  { value: 'chat', labelKey: 'mode.chat', icon: <MessageSquare className="size-4" /> },
+  { value: 'clarify', labelKey: 'mode.clarify', icon: <CircleHelp className="size-4" /> },
   { value: 'cowork', labelKey: 'mode.cowork', icon: <Briefcase className="size-4" /> },
   { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-4" /> }
 ]
@@ -108,7 +108,6 @@ export function TopBar(): React.JSX.Element {
       <SidebarTrigger className="titlebar-no-drag shrink-0 -ml-1" />
       <div className="shrink-0 mr-2" />
 
-      {/* Mode Selector */}
       <div className="titlebar-no-drag flex shrink-0 items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
         {modes.map((m, i) => (
           <Tooltip key={m.value}>

@@ -1096,9 +1096,6 @@ export function useChatActions(): {
           const channelLines: string[] = ['\n## Active Channels']
           for (const c of activeChannels) {
             channelLines.push(`- **${c.name}** (channel_id: \`${c.id}\`, type: ${c.type})`)
-            if (c.userSystemPrompt?.trim()) {
-              channelLines.push(`  Channel instructions: ${c.userSystemPrompt.trim()}`)
-            }
             const desc = useChannelStore.getState().getDescriptor(c.type)
             const toolNames = desc?.tools ?? []
             if (toolNames.length > 0) {
@@ -1203,9 +1200,6 @@ export function useChatActions(): {
                   `Both require plugin_id="${session.pluginId}" and chat_id="${chatId}".`
                 ].join('\n')
               : '',
-            channelMeta?.userSystemPrompt?.trim()
-              ? `\nChannel-specific instructions: ${channelMeta.userSystemPrompt.trim()}`
-              : ''
           ]
             .filter(Boolean)
             .join('\n')
@@ -1236,7 +1230,7 @@ export function useChatActions(): {
         const agentSystemPrompt = buildSystemPrompt({
           mode: mode as 'clarify' | 'cowork' | 'code',
           workingFolder: session?.workingFolder,
-          userSystemPrompt: userPrompt || undefined,
+          userRules: userPrompt || undefined,
           toolDefs: finalEffectiveToolDefs,
           language: useSettingsStore.getState().language,
           planMode: isPlanMode,

@@ -274,6 +274,9 @@ export function InputArea({
   const [showOptimizationDialog, setShowOptimizationDialog] = React.useState(false)
   const [selectedOptionIndex, setSelectedOptionIndex] = React.useState(0)
   const currentLanguage = useSettingsStore((state) => state.language)
+  const clarifyAutoAcceptRecommended = useSettingsStore(
+    (state) => state.clarifyAutoAcceptRecommended
+  )
   const contentScrollRef = React.useRef<HTMLDivElement>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const suggestionMeasureRef = React.useRef<HTMLDivElement>(null)
@@ -426,6 +429,7 @@ export function InputArea({
   const previousQueueSizeBySessionRef = React.useRef<Record<string, number>>({})
   const [isQueueExpanded, setIsQueueExpanded] = React.useState(false)
   const [queueClearConfirmOpen, setQueueClearConfirmOpen] = React.useState(false)
+  const [autoAcceptCountdown, setAutoAcceptCountdown] = React.useState<number | null>(null)
 
   const startEditQueuedMessage = React.useCallback((msg: PendingSessionMessageItem) => {
     setEditingQueueItemId(msg.id)
@@ -543,6 +547,12 @@ export function InputArea({
     }
   }, [historyCursor])
   const recommendationFallback = t(defaultRecommendationKeys[mode])
+  const shouldAutoAcceptRecommendation =
+    mode === 'clarify' &&
+    clarifyAutoAcceptRecommended &&
+    !disabled &&
+    !isOptimizing &&
+    !isStreaming
   const {
     suggestionText,
     measureText,
@@ -674,6 +684,52 @@ export function InputArea({
       textareaRef.current?.focus()
     }
   }, [isStreaming, disabled, activeSessionId])
+
+  React.useEffect(() => {
+    if (!shouldAutoAcceptRecommendation || !suggestionText || !text.trim()) {
+      setAutoAcceptCountdown(null)
+      return
+    }
+
+    setAutoAcceptCountdown(8)
+
+    const intervalId = window.setInterval(() => {
+      setAutoAcceptCountdown((prev) => {
+        if (prev === null) return null
+        return prev > 1 ? prev - 1 : 0
+      })
+    }, 1000)
+
+    const timeoutId = window.setTimeout(() => {
+      if (textareaRef.current && document.activeElement !== textareaRef.current) {
+        return
+      }
+      const acceptedSuggestion = acceptSuggestion()
+      if (!acceptedSuggestion) return
+      clearHistoryNavigation()
+      setText(acceptedSuggestion)
+      setAutoAcceptCountdown(null)
+      requestAnimationFrame(() => {
+        resizeTextarea()
+        focusInputAtEnd()
+        handleRecommendationSelectionChange()
+      })
+    }, 8000)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    acceptSuggestion,
+    clearHistoryNavigation,
+    focusInputAtEnd,
+    handleRecommendationSelectionChange,
+    resizeTextarea,
+    shouldAutoAcceptRecommendation,
+    suggestionText,
+    text
+  ])
 
   React.useEffect(() => {
     if (!activeSessionId) return
@@ -1513,13 +1569,20 @@ export function InputArea({
                 {measureText || text || ' '}
               </div>
               {suggestionText && (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-1 text-base md:text-sm text-muted-foreground/45"
-                >
-                  <span className="invisible">{text}</span>
-                  <span>{suggestionText}</span>
-                </div>
+                <>
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-1 text-base md:text-sm text-muted-foreground/45"
+                  >
+                    <span className="invisible">{text}</span>
+                    <span>{suggestionText}</span>
+                  </div>
+                  {shouldAutoAcceptRecommendation && autoAcceptCountdown !== null && (
+                    <div className="pointer-events-none absolute right-2 top-2 z-20 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                      {autoAcceptCountdown}s
+                    </div>
+                  )}
+                </>
               )}
               <Textarea
                 ref={textareaRef}
