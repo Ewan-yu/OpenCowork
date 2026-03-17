@@ -261,19 +261,28 @@ async function listSearchableFiles(searchRoot: string): Promise<string[]> {
   }
 
   const matcher = await createLocalGitIgnoreContext(normalizedRoot)
-  const matches = await glob('**/*', {
-    cwd: normalizedRoot,
-    nodir: true,
-    dot: true,
-    ignore: buildGlobIgnorePatterns('**/*')
-  })
-
   const files: string[] = []
-  for (const match of matches) {
-    const absolutePath = path.join(normalizedRoot, match)
-    if (await matcher.ignores(absolutePath, false)) continue
-    files.push(match.replace(/\\/g, '/'))
+
+  const walk = async (dirPath: string): Promise<void> => {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true })
+
+    for (const entry of entries) {
+      const absolutePath = path.join(dirPath, entry.name)
+      if (entry.isDirectory()) {
+        if (GREP_IGNORE_DIRS.has(entry.name)) continue
+        if (await matcher.ignores(absolutePath, true)) continue
+        await walk(absolutePath)
+        continue
+      }
+
+      if (!entry.isFile()) continue
+      if (await matcher.ignores(absolutePath, false)) continue
+
+      files.push(path.relative(normalizedRoot, absolutePath).replace(/\\/g, '/'))
+    }
   }
+
+  await walk(normalizedRoot)
 
   fileSearchCache.set(normalizedRoot, {
     expiresAt: now + FILE_SEARCH_CACHE_TTL_MS,
@@ -735,21 +744,30 @@ export function registerFsHandlers(): void {
         const files = await listSearchableFiles(searchRoot)
         const limit = Math.max(1, Math.min(args.limit ?? FILE_SEARCH_MAX_RESULTS, 100))
 
-        return files
-          .map((filePath) => ({
-            path: filePath,
-            score: scoreFileSearchMatch(filePath, normalizedQuery)
-          }))
-          .filter((item) => Number.isFinite(item.score))
-          .sort((left, right) => {
-            if (left.score !== right.score) return left.score - right.score
-            return left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
-          })
-          .slice(0, limit)
-          .map((item) => ({
-            path: item.path,
-            name: path.basename(item.path)
-          }))
+        const topMatches: Array<{ path: string; score: number }> = []
+
+        for (const filePath of files) {
+          const score = scoreFileSearchMatch(filePath, normalizedQuery)
+          if (!Number.isFinite(score)) continue
+
+          const candidate = { path: filePath, score }
+          let insertAt = topMatches.findIndex(
+            (item) =>
+              score < item.score ||
+              (score === item.score &&
+                filePath.localeCompare(item.path, undefined, { sensitivity: 'base' }) < 0)
+          )
+          if (insertAt === -1) insertAt = topMatches.length
+
+          if (insertAt >= limit && topMatches.length >= limit) continue
+          topMatches.splice(insertAt, 0, candidate)
+          if (topMatches.length > limit) topMatches.length = limit
+        }
+
+        return topMatches.map((item) => ({
+          path: item.path,
+          name: path.basename(item.path)
+        }))
       } catch (err) {
         return { error: String(err) }
       }

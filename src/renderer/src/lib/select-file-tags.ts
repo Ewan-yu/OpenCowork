@@ -10,6 +10,13 @@ export interface SelectFileMentionQuery {
   query: string
 }
 
+export interface SelectFileTagRange {
+  start: number
+  end: number
+  text: string
+  raw: string
+}
+
 const SELECT_FILE_TAG_RE = /<select-file>([\s\S]*?)<\/select-file>/gi
 const SELECT_FILE_TAG_TEST_RE = /<select-file>[\s\S]*?<\/select-file>/i
 
@@ -64,6 +71,24 @@ export function parseSelectFileText(text: string): SelectFileTextSegment[] {
   return segments
 }
 
+export function getSelectFileTagRanges(text: string): SelectFileTagRange[] {
+  if (!text) return []
+
+  const ranges: SelectFileTagRange[] = []
+  for (const match of text.matchAll(SELECT_FILE_TAG_RE)) {
+    const start = match.index ?? -1
+    const raw = match[0] ?? ''
+    if (start < 0 || !raw) continue
+    ranges.push({
+      start,
+      end: start + raw.length,
+      raw,
+      text: decodeTagText(match[1] ?? '').trim()
+    })
+  }
+  return ranges
+}
+
 export function hasSelectFileTag(text: string): boolean {
   return SELECT_FILE_TAG_TEST_RE.test(text)
 }
@@ -72,6 +97,19 @@ export function selectFileTextToPlainText(text: string): string {
   const segments = parseSelectFileText(text)
   if (segments.length === 0) return text
   return segments.map((segment) => segment.text).join('')
+}
+
+export function findSelectFileTagAt(
+  text: string,
+  cursor: number
+): SelectFileTagRange | null {
+  const safeCursor = Math.max(0, Math.min(cursor, text.length))
+  for (const range of getSelectFileTagRanges(text)) {
+    if (safeCursor > range.start && safeCursor < range.end) {
+      return range
+    }
+  }
+  return null
 }
 
 export function getSelectFileMentionQuery(

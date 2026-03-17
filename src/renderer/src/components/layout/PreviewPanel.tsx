@@ -5,11 +5,11 @@ import { Button } from '@renderer/components/ui/button'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useFileWatcher } from '@renderer/hooks/use-file-watcher'
 import { viewerRegistry } from '@renderer/lib/preview/viewer-registry'
-import { createMarkdownComponents } from '@renderer/lib/preview/viewers/markdown-viewer'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { createMarkdownComponents } from '@renderer/lib/preview/viewers/markdown-components'
 import {
   AlertDialog,
   AlertDialogAction,

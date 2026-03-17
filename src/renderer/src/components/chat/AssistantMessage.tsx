@@ -9,7 +9,7 @@ import {
   useMermaidThemeVersion
 } from '@renderer/lib/utils/mermaid-theme'
 import { Avatar, AvatarFallback } from '@renderer/components/ui/avatar'
-import { Copy, Check, ChevronsDownUp, ChevronsUpDown, Bug, ImageDown } from 'lucide-react'
+import { Copy, Check, ChevronsDownUp, ChevronsUpDown, Bug, ImageDown, ZoomIn } from 'lucide-react'
 import { FadeIn, ScaleIn } from '@renderer/components/animate-ui'
 import { ImageGeneratingLoader } from './ImageGeneratingLoader'
 import { ImageGenerationErrorCard } from './ImageGenerationErrorCard'
@@ -231,6 +231,7 @@ function MermaidImageCopyButton({ svg }: { svg: string }): React.JSX.Element {
 function MermaidCodeBlock({ code }: { code: string }): React.JSX.Element {
   const [svg, setSvg] = useState('')
   const [error, setError] = useState('')
+  const [zoomOpen, setZoomOpen] = useState(false)
   const diagramKey = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const themeVersion = useMermaidThemeVersion()
 
@@ -270,6 +271,15 @@ function MermaidCodeBlock({ code }: { code: string }): React.JSX.Element {
           mermaid
         </span>
         <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setZoomOpen(true)}
+            disabled={!svg.trim()}
+            title="放大 Mermaid 图"
+            className="flex items-center rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted-foreground/10 transition-colors disabled:opacity-50"
+          >
+            <ZoomIn className="size-3" />
+            <span>放大</span>
+          </button>
           <MermaidImageCopyButton svg={svg} />
           <CopyButton text={code} />
         </div>
@@ -293,6 +303,21 @@ function MermaidCodeBlock({ code }: { code: string }): React.JSX.Element {
           </div>
         )}
       </div>
+      <Dialog open={zoomOpen} onOpenChange={setZoomOpen}>
+        <DialogContent className="flex h-[90vh] w-[95vw] max-w-[95vw] flex-col p-4">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Mermaid 放大预览</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto rounded-md bg-background p-4">
+            {svg ? (
+              <div
+                className="flex min-h-full min-w-max items-start justify-center [&_svg]:h-auto [&_svg]:max-w-none"
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

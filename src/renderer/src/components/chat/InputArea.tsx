@@ -43,7 +43,9 @@ import {
 } from '@renderer/lib/image-attachments'
 import {
   createSelectFileTag,
+  findSelectFileTagAt,
   getSelectFileMentionQuery,
+  getSelectFileTagRanges,
   hasSelectFileTag,
   selectFileTextToPlainText
 } from '@renderer/lib/select-file-tags'
@@ -628,6 +630,7 @@ export function InputArea({
     textareaRef
   })
   const hasFileTags = React.useMemo(() => hasSelectFileTag(text), [text])
+  const fileTagRanges = React.useMemo(() => getSelectFileTagRanges(text), [text])
   const resizeTextarea = React.useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -652,15 +655,28 @@ export function InputArea({
   const syncInputSelection = React.useCallback(() => {
     const el = textareaRef.current
     if (!el) return
-    setInputSelection({
-      start: el.selectionStart ?? 0,
-      end: el.selectionEnd ?? 0
-    })
-  }, [])
 
-  React.useEffect(() => {
-    syncInputSelection()
-  }, [syncInputSelection, text])
+    let start = el.selectionStart ?? 0
+    let end = el.selectionEnd ?? 0
+
+    const startTag = findSelectFileTagAt(text, start)
+    const endTag = findSelectFileTagAt(text, end)
+
+    if (start === end && startTag) {
+      const nextCursor = start - startTag.start <= startTag.end - start ? startTag.start : startTag.end
+      start = nextCursor
+      end = nextCursor
+      el.setSelectionRange(nextCursor, nextCursor)
+    } else {
+      if (startTag) start = startTag.start
+      if (endTag) end = endTag.end
+      if (start !== (el.selectionStart ?? 0) || end !== (el.selectionEnd ?? 0)) {
+        el.setSelectionRange(start, end)
+      }
+    }
+
+    setInputSelection({ start, end })
+  }, [text])
 
   const focusInputAtEnd = React.useCallback(() => {
     const el = textareaRef.current
@@ -670,6 +686,23 @@ export function InputArea({
     el.setSelectionRange(cursor, cursor)
     setInputSelection({ start: cursor, end: cursor })
   }, [])
+  const expandSelectionAcrossFileTags = React.useCallback(
+    (start: number, end: number): { start: number; end: number } => {
+      let nextStart = start
+      let nextEnd = end
+
+      for (const range of fileTagRanges) {
+        const overlaps = nextStart < range.end && nextEnd > range.start
+        if (!overlaps) continue
+        if (nextStart > range.start) nextStart = range.start
+        if (nextEnd < range.end) nextEnd = range.end
+      }
+
+      return { start: nextStart, end: nextEnd }
+    },
+    [fileTagRanges]
+  )
+
   const activeFileMention = React.useMemo(() => {
     if (inputSelection.start !== inputSelection.end) return null
     return getSelectFileMentionQuery(text, inputSelection.end)
@@ -762,6 +795,10 @@ export function InputArea({
       window.clearTimeout(timer)
     }
   }, [fileMenuOpen, fileQuery, workingFolder])
+
+  React.useEffect(() => {
+    syncInputSelection()
+  }, [syncInputSelection, text])
 
   const insertSelectedFile = React.useCallback(
     (filePath: string) => {
@@ -1094,6 +1131,73 @@ export function InputArea({
     if (e.nativeEvent.isComposing) return
     if (isOptimizing) return // Disable input during optimization
 
+    const target = e.currentTarget
+    const selectionStart = target.selectionStart ?? 0
+    const selectionEnd = target.selectionEnd ?? 0
+    const collapsed = selectionStart === selectionEnd
+    const activeTag = collapsed ? findSelectFileTagAt(text, selectionStart) : null
+
+    if (activeTag) {
+      const nextCursor =
+        selectionStart - activeTag.start <= activeTag.end - selectionStart
+          ? activeTag.start
+          : activeTag.end
+      e.preventDefault()
+      target.setSelectionRange(nextCursor, nextCursor)
+      setInputSelection({ start: nextCursor, end: nextCursor })
+      return
+    }
+
+    if (!collapsed) {
+      const expanded = expandSelectionAcrossFileTags(selectionStart, selectionEnd)
+      if (expanded.start !== selectionStart || expanded.end !== selectionEnd) {
+        target.setSelectionRange(expanded.start, expanded.end)
+        setInputSelection(expanded)
+      }
+    }
+
+    if (
+      !e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      (e.key === 'Backspace' || e.key === 'Delete')
+    ) {
+      if (!collapsed) {
+        const expanded = expandSelectionAcrossFileTags(selectionStart, selectionEnd)
+        if (expanded.start !== selectionStart || expanded.end !== selectionEnd) {
+          e.preventDefault()
+          const nextText = `${text.slice(0, expanded.start)}${text.slice(expanded.end)}`
+          setText(nextText)
+          requestAnimationFrame(() => {
+            resizeTextarea()
+            target.setSelectionRange(expanded.start, expanded.start)
+            setInputSelection({ start: expanded.start, end: expanded.start })
+          })
+          return
+        }
+      }
+
+      if (collapsed) {
+        const adjacentTag =
+          e.key === 'Backspace'
+            ? fileTagRanges.find((range) => range.end === selectionStart)
+            : fileTagRanges.find((range) => range.start === selectionStart)
+
+        if (adjacentTag) {
+          e.preventDefault()
+          const nextText = `${text.slice(0, adjacentTag.start)}${text.slice(adjacentTag.end)}`
+          const nextCursor = adjacentTag.start
+          setText(nextText)
+          requestAnimationFrame(() => {
+            resizeTextarea()
+            target.setSelectionRange(nextCursor, nextCursor)
+            setInputSelection({ start: nextCursor, end: nextCursor })
+          })
+          return
+        }
+      }
+    }
+
     if (fileMenuOpen) {
       if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowDown') {
         e.preventDefault()
@@ -1176,9 +1280,6 @@ export function InputArea({
       !e.shiftKey &&
       (e.key === 'ArrowUp' || e.key === 'ArrowDown')
     ) {
-      const target = e.currentTarget
-      const selectionStart = target.selectionStart ?? 0
-      const selectionEnd = target.selectionEnd ?? 0
       const isCollapsed = selectionStart === selectionEnd
       if (isCollapsed && e.key === 'ArrowUp' && selectionStart === 0) {
         e.preventDefault()
@@ -1202,10 +1303,27 @@ export function InputArea({
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
     if (isOptimizing) return // Disable input during optimization
     clearHistoryNavigation()
-    setText(e.target.value)
+
+    let nextValue = e.target.value
+    let nextStart = e.target.selectionStart ?? nextValue.length
+    let nextEnd = e.target.selectionEnd ?? nextValue.length
+
+    const hasBrokenTagMarkup =
+      nextValue.includes('<select-file') || nextValue.includes('</select-file>') || nextValue.includes('<select-file>')
+    const nextTagCount = getSelectFileTagRanges(nextValue).length
+    if (fileTagRanges.length > 0 && hasBrokenTagMarkup && nextTagCount < fileTagRanges.length) {
+      nextValue = text
+      const expanded = expandSelectionAcrossFileTags(inputSelection.start, inputSelection.end)
+      nextStart = expanded.end
+      nextEnd = expanded.end
+      e.target.value = nextValue
+      e.target.setSelectionRange(nextStart, nextEnd)
+    }
+
+    setText(nextValue)
     setInputSelection({
-      start: e.target.selectionStart ?? e.target.value.length,
-      end: e.target.selectionEnd ?? e.target.value.length
+      start: nextStart,
+      end: nextEnd
     })
     if (inputHeight) return
     const el = e.target
