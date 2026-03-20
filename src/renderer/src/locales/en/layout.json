@@ -229,11 +229,35 @@
   "navRail": {
     "conversations": "Conversations",
     "tasks": "Tasks",
+    "resources": "Resources",
     "skills": "Skills",
     "draw": "Draw",
     "translate": "Translate",
     "ssh": "SSH",
     "settings": "Settings"
+  },
+  "resourcesPage": {
+    "title": "Resources",
+    "subtitle": "Manage SubAgents and Commands in one place",
+    "searchPlaceholder": "Search by name, summary, or path",
+    "count_one": "{{count}} item",
+    "count_other": "{{count}} items",
+    "listTitle": "Resource List",
+    "loadingList": "Loading resources...",
+    "empty": "No resources available",
+    "emptyDesc": "Try switching type or adjusting the search query",
+    "noDescription": "No summary available",
+    "effective": "Effective",
+    "readonlyNotice": "This is a bundled resource. Preview is available, but direct editing is disabled.",
+    "loadingDetail": "Loading content...",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "selectTitle": "Select a resource",
+    "selectDesc": "Use the left side to switch resource type, then choose an item from the list.",
+    "kind": {
+      "agents": "SubAgents",
+      "commands": "Commands"
+    }
   },
   "drawPage": {
     "title": "AI Drawing",

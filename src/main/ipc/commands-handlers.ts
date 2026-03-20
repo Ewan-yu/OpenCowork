@@ -10,6 +10,21 @@ export interface CommandInfo {
   summary: string
 }
 
+export interface CommandManageItem {
+  id: string
+  name: string
+  summary: string
+  path: string
+  source: 'bundled' | 'user'
+  editable: boolean
+  effective: boolean
+}
+
+function isPathInsideDir(targetPath: string, baseDir: string): boolean {
+  const relative = path.relative(baseDir, targetPath)
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
 function getBundledCommandsDir(): string {
   const isDev = !app.isPackaged
   if (isDev) {
@@ -87,6 +102,48 @@ function resolveCommandPath(name: string): string | null {
   return resolveBundledCommandPath(name) ?? resolveUserCommandPath(name)
 }
 
+function collectManageCommands(): CommandManageItem[] {
+  const bundledDir = getBundledCommandsDir()
+  const userDir = USER_COMMANDS_DIR
+  const items: CommandManageItem[] = []
+  const effectiveNames = new Set<string>()
+
+  const sources: Array<{ dir: string; source: 'bundled' | 'user'; editable: boolean }> = [
+    { dir: bundledDir, source: 'bundled', editable: false },
+    { dir: userDir, source: 'user', editable: true }
+  ]
+
+  for (const source of sources) {
+    for (const entry of listCommandEntries(source.dir)) {
+      const commandPath = path.join(source.dir, entry.name)
+      const name = commandNameFromFilename(entry.name)
+      const normalizedName = normalizeCommandName(name)
+      const content = fs.readFileSync(commandPath, 'utf-8')
+      const effective = !effectiveNames.has(normalizedName)
+      if (effective) {
+        effectiveNames.add(normalizedName)
+      }
+
+      items.push({
+        id: `${source.source}:${commandPath}`,
+        name,
+        summary: summarizeCommand(content),
+        path: commandPath,
+        source: source.source,
+        editable: source.editable,
+        effective
+      })
+    }
+  }
+
+  return items.sort((left, right) => {
+    const byName = left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+    if (byName !== 0) return byName
+    if (left.source === right.source) return 0
+    return left.source === 'bundled' ? -1 : 1
+  })
+}
+
 function collectCommands(): CommandInfo[] {
   const commandsByName = new Map<string, CommandInfo>()
   const commandPaths = [
@@ -151,6 +208,87 @@ export function registerCommandsHandlers(): void {
         }
       } catch (err) {
         return { error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle('commands:manage-list', async (): Promise<CommandManageItem[]> => {
+    try {
+      return collectManageCommands()
+    } catch {
+      return []
+    }
+  })
+
+  ipcMain.handle(
+    'commands:manage-read',
+    async (
+      _event,
+      args: { path: string }
+    ): Promise<
+      | {
+          id: string
+          name: string
+          summary: string
+          path: string
+          source: 'bundled' | 'user'
+          editable: boolean
+          effective: boolean
+          content: string
+        }
+      | { error: string }
+    > => {
+      try {
+        const targetPath = args?.path?.trim()
+        if (!targetPath) return { error: 'Command path is required' }
+
+        const isBundled = isPathInsideDir(targetPath, getBundledCommandsDir())
+        const isUser = isPathInsideDir(targetPath, USER_COMMANDS_DIR)
+        if (!isBundled && !isUser) {
+          return { error: 'Command path is outside the managed directories' }
+        }
+        if (!fs.existsSync(targetPath)) {
+          return { error: `Command file not found: ${targetPath}` }
+        }
+
+        const content = fs.readFileSync(targetPath, 'utf-8')
+        const name = commandNameFromFilename(path.basename(targetPath))
+        const source = isBundled ? 'bundled' : 'user'
+        const effective = resolveCommandPath(name) === targetPath
+
+        return {
+          id: `${source}:${targetPath}`,
+          name,
+          summary: summarizeCommand(content),
+          path: targetPath,
+          source,
+          editable: source === 'user',
+          effective,
+          content
+        }
+      } catch (err) {
+        return { error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'commands:manage-save',
+    async (
+      _event,
+      args: { path: string; content: string }
+    ): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const targetPath = args?.path?.trim()
+        if (!targetPath) return { success: false, error: 'Command path is required' }
+        if (!isPathInsideDir(targetPath, USER_COMMANDS_DIR)) {
+          return { success: false, error: 'Only user commands can be edited' }
+        }
+
+        fs.writeFileSync(targetPath, args.content, 'utf-8')
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: String(err) }
       }
     }
   )

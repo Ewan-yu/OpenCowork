@@ -6,7 +6,15 @@ import {
 
 export type AppMode = 'chat' | 'clarify' | 'cowork' | 'code'
 
-export type NavItem = 'chat' | 'channels' | 'skills' | 'draw' | 'translate' | 'ssh' | 'tasks'
+export type NavItem =
+  | 'chat'
+  | 'channels'
+  | 'resources'
+  | 'skills'
+  | 'draw'
+  | 'translate'
+  | 'ssh'
+  | 'tasks'
 
 export type ChatView = 'home' | 'session'
 
@@ -135,6 +143,10 @@ interface UIStore {
   openSkillsPage: () => void
   closeSkillsPage: () => void
 
+  resourcesPageOpen: boolean
+  openResourcesPage: () => void
+  closeResourcesPage: () => void
+
   translatePageOpen: boolean
   openTranslatePage: () => void
   closeTranslatePage: () => void
@@ -255,6 +267,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       settingsTab: tab ?? 'general',
       leftSidebarOpen: false,
       skillsPageOpen: false,
+      resourcesPageOpen: false,
       translatePageOpen: false,
       drawPageOpen: false,
       sshPageOpen: false,
@@ -267,6 +280,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   openSkillsPage: () =>
     set({
       skillsPageOpen: true,
+      resourcesPageOpen: false,
       settingsPageOpen: false,
       translatePageOpen: false,
       drawPageOpen: false,
@@ -276,12 +290,27 @@ export const useUIStore = create<UIStore>((set, get) => ({
     }),
   closeSkillsPage: () => set({ skillsPageOpen: false }),
 
+  resourcesPageOpen: false,
+  openResourcesPage: () =>
+    set({
+      resourcesPageOpen: true,
+      settingsPageOpen: false,
+      skillsPageOpen: false,
+      translatePageOpen: false,
+      drawPageOpen: false,
+      sshPageOpen: false,
+      tasksPageOpen: false,
+      leftSidebarOpen: false
+    }),
+  closeResourcesPage: () => set({ resourcesPageOpen: false }),
+
   translatePageOpen: false,
   openTranslatePage: () =>
     set({
       translatePageOpen: true,
       settingsPageOpen: false,
       skillsPageOpen: false,
+      resourcesPageOpen: false,
       drawPageOpen: false,
       sshPageOpen: false,
       tasksPageOpen: false,
@@ -295,6 +324,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       drawPageOpen: true,
       settingsPageOpen: false,
       skillsPageOpen: false,
+      resourcesPageOpen: false,
       translatePageOpen: false,
       sshPageOpen: false,
       tasksPageOpen: false,
@@ -308,6 +338,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       sshPageOpen: true,
       settingsPageOpen: false,
       skillsPageOpen: false,
+      resourcesPageOpen: false,
       translatePageOpen: false,
       drawPageOpen: false,
       tasksPageOpen: false,
@@ -321,6 +352,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       tasksPageOpen: true,
       settingsPageOpen: false,
       skillsPageOpen: false,
+      resourcesPageOpen: false,
       translatePageOpen: false,
       drawPageOpen: false,
       sshPageOpen: false,
@@ -562,6 +594,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       chatView: 'home',
       settingsPageOpen: false,
       skillsPageOpen: false,
+      resourcesPageOpen: false,
       translatePageOpen: false,
       sshPageOpen: false,
       tasksPageOpen: false
@@ -571,6 +604,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       chatView: 'session',
       settingsPageOpen: false,
       skillsPageOpen: false,
+      resourcesPageOpen: false,
       translatePageOpen: false,
       sshPageOpen: false,
       tasksPageOpen: false

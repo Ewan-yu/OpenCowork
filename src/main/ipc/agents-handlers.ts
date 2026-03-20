@@ -78,6 +78,20 @@ export interface AgentInfo {
   systemPrompt: string
 }
 
+export interface AgentManageItem {
+  id: string
+  name: string
+  description: string
+  path: string
+  source: 'user'
+  editable: true
+}
+
+function isPathInsideDir(targetPath: string, baseDir: string): boolean {
+  const relative = path.relative(baseDir, targetPath)
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
 /**
  * Parse a single agent .md file into AgentInfo.
  * Returns null if parsing fails or required fields are missing.
@@ -111,7 +125,10 @@ function parseAgentFile(content: string, filename: string): AgentInfo | null {
   }
 
   const allowedToolsStr = getString('allowedTools') ?? 'Read, Glob, Grep, LS'
-  const allowedTools = allowedToolsStr.split(',').map((t) => t.trim()).filter(Boolean)
+  const allowedTools = allowedToolsStr
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
 
   return {
     name,
@@ -122,8 +139,41 @@ function parseAgentFile(content: string, filename: string): AgentInfo | null {
     maxIterations: getNumber('maxIterations') ?? 0,
     model: getString('model'),
     temperature: getNumber('temperature'),
-    systemPrompt: body || `You are ${name}, a specialized agent.`,
+    systemPrompt: body || `You are ${name}, a specialized agent.`
   }
+}
+
+function collectManageAgents(): AgentManageItem[] {
+  if (!fs.existsSync(AGENTS_DIR)) return []
+
+  const entries = fs.readdirSync(AGENTS_DIR, { withFileTypes: true })
+  const agents: AgentManageItem[] = []
+  for (const entry of entries) {
+    if (entry.isDirectory()) continue
+    if (!entry.name.endsWith('.md')) continue
+
+    try {
+      const agentPath = path.join(AGENTS_DIR, entry.name)
+      const content = fs.readFileSync(agentPath, 'utf-8')
+      const agent = parseAgentFile(content, entry.name)
+      if (!agent) continue
+
+      agents.push({
+        id: agentPath,
+        name: agent.name,
+        description: agent.description,
+        path: agentPath,
+        source: 'user',
+        editable: true
+      })
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  return agents.sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+  )
 }
 
 export function registerAgentsHandlers(): void {
@@ -158,27 +208,113 @@ export function registerAgentsHandlers(): void {
   /**
    * agents:load — read and parse a specific agent .md file by name.
    */
-  ipcMain.handle('agents:load', async (_event, args: { name: string }): Promise<AgentInfo | { error: string }> => {
-    try {
-      if (!fs.existsSync(AGENTS_DIR)) {
-        return { error: `Agents directory not found` }
-      }
-      // Search for the agent file by name field (not filename)
-      const entries = fs.readdirSync(AGENTS_DIR, { withFileTypes: true })
-      for (const entry of entries) {
-        if (entry.isDirectory()) continue
-        if (!entry.name.endsWith('.md')) continue
-        try {
-          const content = fs.readFileSync(path.join(AGENTS_DIR, entry.name), 'utf-8')
-          const agent = parseAgentFile(content, entry.name)
-          if (agent && agent.name === args.name) return agent
-        } catch {
-          // Skip unreadable files
+  ipcMain.handle(
+    'agents:load',
+    async (_event, args: { name: string }): Promise<AgentInfo | { error: string }> => {
+      try {
+        if (!fs.existsSync(AGENTS_DIR)) {
+          return { error: `Agents directory not found` }
         }
+        // Search for the agent file by name field (not filename)
+        const entries = fs.readdirSync(AGENTS_DIR, { withFileTypes: true })
+        for (const entry of entries) {
+          if (entry.isDirectory()) continue
+          if (!entry.name.endsWith('.md')) continue
+          try {
+            const content = fs.readFileSync(path.join(AGENTS_DIR, entry.name), 'utf-8')
+            const agent = parseAgentFile(content, entry.name)
+            if (agent && agent.name === args.name) return agent
+          } catch {
+            // Skip unreadable files
+          }
+        }
+        return { error: `Agent "${args.name}" not found` }
+      } catch (err) {
+        return { error: String(err) }
       }
-      return { error: `Agent "${args.name}" not found` }
-    } catch (err) {
-      return { error: String(err) }
+    }
+  )
+
+  ipcMain.handle('agents:manage-list', async (): Promise<AgentManageItem[]> => {
+    try {
+      return collectManageAgents()
+    } catch {
+      return []
     }
   })
+
+  ipcMain.handle(
+    'agents:manage-read',
+    async (
+      _event,
+      args: { path: string }
+    ): Promise<
+      | {
+          id: string
+          name: string
+          description: string
+          path: string
+          source: 'user'
+          editable: true
+          content: string
+        }
+      | { error: string }
+    > => {
+      try {
+        const targetPath = args?.path?.trim()
+        if (!targetPath) return { error: 'Agent path is required' }
+        if (!isPathInsideDir(targetPath, AGENTS_DIR)) {
+          return { error: 'Agent path is outside the managed directory' }
+        }
+        if (!fs.existsSync(targetPath)) {
+          return { error: `Agent file not found: ${targetPath}` }
+        }
+
+        const content = fs.readFileSync(targetPath, 'utf-8')
+        const agent = parseAgentFile(content, path.basename(targetPath))
+        if (!agent) return { error: `Agent file is invalid: ${targetPath}` }
+
+        return {
+          id: targetPath,
+          name: agent.name,
+          description: agent.description,
+          path: targetPath,
+          source: 'user',
+          editable: true,
+          content
+        }
+      } catch (err) {
+        return { error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'agents:manage-save',
+    async (
+      _event,
+      args: { path: string; content: string }
+    ): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const targetPath = args?.path?.trim()
+        if (!targetPath) return { success: false, error: 'Agent path is required' }
+        if (!isPathInsideDir(targetPath, AGENTS_DIR)) {
+          return { success: false, error: 'Agent path is outside the managed directory' }
+        }
+
+        const parsed = parseAgentFile(args.content, path.basename(targetPath))
+        if (!parsed) {
+          return {
+            success: false,
+            error: 'Agent markdown is invalid or missing required frontmatter'
+          }
+        }
+
+        fs.writeFileSync(targetPath, args.content, 'utf-8')
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: String(err) }
+      }
+    }
+  )
 }

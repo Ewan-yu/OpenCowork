@@ -101,6 +101,11 @@ const SkillsPage = lazy(async () => {
   return { default: mod.SkillsPage }
 })
 
+const ResourcesPage = lazy(async () => {
+  const mod = await import('@renderer/components/resources/ResourcesPage')
+  return { default: mod.ResourcesPage }
+})
+
 const TranslatePage = lazy(async () => {
   const mod = await import('@renderer/components/translate/TranslatePage')
   return { default: mod.TranslatePage }
@@ -292,6 +297,7 @@ export function Layout(): React.JSX.Element {
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const settingsPageOpen = useUIStore((s) => s.settingsPageOpen)
   const skillsPageOpen = useUIStore((s) => s.skillsPageOpen)
+  const resourcesPageOpen = useUIStore((s) => s.resourcesPageOpen)
   const drawPageOpen = useUIStore((s) => s.drawPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
   const sshPageOpen = useUIStore((s) => s.sshPageOpen)
@@ -778,6 +784,15 @@ export function Layout(): React.JSX.Element {
                   >
                     <Suspense fallback={<LazyPageFallback />}>
                       <TasksPage />
+                    </Suspense>
+                  </PageTransition>
+                ) : resourcesPageOpen ? (
+                  <PageTransition
+                    key="resources-page"
+                    className="flex-1 min-w-0 bg-background overflow-hidden"
+                  >
+                    <Suspense fallback={<LazyPageFallback />}>
+                      <ResourcesPage />
                     </Suspense>
                   </PageTransition>
                 ) : skillsPageOpen ? (
