@@ -26,7 +26,6 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 }
 
 const LANGUAGE_LOADERS: Record<string, () => Promise<{ default: unknown }>> = {
-  plaintext: async () => ({ default: {} }),
   typescript: () => import('react-syntax-highlighter/dist/esm/languages/prism/typescript'),
   javascript: () => import('react-syntax-highlighter/dist/esm/languages/prism/javascript'),
   python: () => import('react-syntax-highlighter/dist/esm/languages/prism/python'),
@@ -121,8 +120,10 @@ export function LazySyntaxHighlighter({
   const { resolvedTheme } = useTheme()
   const [runtime, setRuntime] = React.useState<HighlighterRuntime | null>(null)
   const normalizedLanguage = normalizeLanguage(language)
+  const canHighlight = normalizedLanguage !== 'plaintext' && normalizedLanguage in LANGUAGE_LOADERS
 
   React.useEffect(() => {
+    if (!canHighlight) return
     let cancelled = false
     ensureRuntime().then((loaded) => {
       if (!cancelled) setRuntime(loaded)
@@ -130,14 +131,14 @@ export function LazySyntaxHighlighter({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [canHighlight])
 
   React.useEffect(() => {
-    if (!runtime) return
+    if (!runtime || !canHighlight) return
     void ensureLanguageLoaded(normalizedLanguage)
-  }, [runtime, normalizedLanguage])
+  }, [runtime, normalizedLanguage, canHighlight])
 
-  if (!runtime) {
+  if (!runtime || !canHighlight) {
     return (
       <pre className="overflow-auto whitespace-pre-wrap break-words text-xs font-mono">
         {children}
