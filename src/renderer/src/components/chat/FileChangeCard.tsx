@@ -1,8 +1,9 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useTheme } from 'next-themes'
 import { FileCode, FilePlus2, FileX2, FileEdit, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
@@ -358,10 +359,10 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
         className={cn(
           'select-none w-5 shrink-0 text-right pr-1',
           line.type === 'del'
-            ? 'text-red-400/40'
+            ? 'text-red-600/50 dark:text-red-400/40'
             : line.type === 'add'
-              ? 'text-green-400/40'
-              : 'text-zinc-600'
+              ? 'text-green-600/50 dark:text-green-400/40'
+              : 'text-muted-foreground/70 dark:text-zinc-600'
         )}
       >
         {line.oldNum ?? line.newNum ?? ''}
@@ -369,9 +370,9 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
       <span
         className={cn(
           'px-1.5 flex-1',
-          line.type === 'del' && 'text-red-300/80',
-          line.type === 'add' && 'text-green-300/80',
-          line.type === 'keep' && 'text-zinc-500'
+          line.type === 'del' && 'text-red-700/85 dark:text-red-300/80',
+          line.type === 'add' && 'text-green-700/85 dark:text-green-300/80',
+          line.type === 'keep' && 'text-foreground/70 dark:text-zinc-500'
         )}
       >
         {line.type === 'del' ? '- ' : line.type === 'add' ? '+ ' : '  '}
@@ -395,7 +396,7 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
         return (
           <button
             key={`c${ci}`}
-            className="flex w-full items-center justify-center py-0.5 text-[9px] text-zinc-500/50 hover:text-zinc-400 hover:bg-zinc-800/30 transition-colors border-y border-zinc-800/30"
+            className="flex w-full items-center justify-center border-y border-border/50 py-0.5 text-[9px] text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-foreground dark:border-zinc-800/30 dark:text-zinc-500/50 dark:hover:bg-zinc-800/30 dark:hover:text-zinc-400"
             onClick={() => setExpandedChunks((prev) => new Set([...prev, ci]))}
           >
             {t('fileChange.unchangedLines', { count: chunk.count })}
@@ -418,6 +419,7 @@ function NewFileContent({
   isStreaming?: boolean
 }): React.JSX.Element {
   const { t } = useTranslation('chat')
+  const { resolvedTheme } = useTheme()
   const lang = detectLang(filePath)
   const lines = content.split('\n').length
   const truncated = !isStreaming && lines > 50
@@ -443,7 +445,7 @@ function NewFileContent({
       >
         <SyntaxHighlighter
           language={lang}
-          style={oneDark}
+          style={resolvedTheme === 'light' ? oneLight : oneDark}
           customStyle={{
             margin: 0,
             padding: '0.5rem',
@@ -456,10 +458,15 @@ function NewFileContent({
           lineNumberStyle={{
             minWidth: '2em',
             paddingRight: '0.5em',
-            color: 'rgba(74,222,128,0.3)',
+            color: resolvedTheme === 'light' ? 'rgba(15,23,42,0.28)' : 'rgba(74,222,128,0.3)',
             userSelect: 'none'
           }}
-          lineProps={() => ({ style: { background: 'rgba(74,222,128,0.05)' } })}
+          lineProps={() => ({
+            style: {
+              background:
+                resolvedTheme === 'light' ? 'rgba(15,23,42,0.035)' : 'rgba(74,222,128,0.05)'
+            }
+          })}
         >
           {expanded || isStreaming ? content : displayed}
         </SyntaxHighlighter>
@@ -467,7 +474,7 @@ function NewFileContent({
       {truncated && !expanded && (
         <button
           onClick={() => setExpanded(true)}
-          className="w-full py-1 text-[10px] text-center text-zinc-500/60 hover:text-zinc-400 transition-colors border-t border-zinc-800/30"
+          className="w-full border-t border-border/50 py-1 text-center text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground dark:border-zinc-800/30 dark:text-zinc-500/60 dark:hover:text-zinc-400"
         >
           {t('fileChange.moreLines', { count: lines - 50 })}
         </button>
@@ -541,7 +548,7 @@ function PendingWritePreview({
       )}
       {visiblePreview && (
         <pre
-          className="rounded-md border bg-zinc-950 px-2.5 py-2 text-[11px] text-zinc-300/80 overflow-auto whitespace-pre-wrap break-words"
+          className="overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2.5 py-2 text-[11px] text-foreground/80 dark:bg-zinc-950 dark:text-zinc-300/80"
           style={{ fontFamily: MONO_FONT, maxHeight: isStreaming ? '240px' : '180px' }}
         >
           {visiblePreview}
@@ -560,10 +567,14 @@ function trackedStatusLabel(change: AgentRunFileChange): string {
 }
 
 function trackedStatusTone(change: AgentRunFileChange): string {
-  if (change.status === 'accepted') return 'bg-emerald-500/10 text-emerald-500'
-  if (change.status === 'reverted') return 'bg-zinc-500/10 text-zinc-300'
-  if (change.status === 'conflicted') return 'bg-amber-500/10 text-amber-500'
-  return change.transport === 'ssh' ? 'bg-sky-500/10 text-sky-400' : 'bg-blue-500/10 text-blue-400'
+  if (change.status === 'accepted')
+    return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-500'
+  if (change.status === 'reverted')
+    return 'bg-muted text-foreground/70 dark:bg-zinc-500/10 dark:text-zinc-300'
+  if (change.status === 'conflicted') return 'bg-amber-500/10 text-amber-600 dark:text-amber-500'
+  return change.transport === 'ssh'
+    ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+    : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
 }
 
 // ── Main Component ───────────────────────────────────────────────
@@ -708,7 +719,7 @@ export function FileChangeCard({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="border-t border-inherit bg-zinc-950 overflow-hidden"
+            className="overflow-hidden border-t border-inherit bg-muted/20 dark:bg-zinc-950"
           >
             {/* Edit: delay diff rendering until the tool settles */}
             {name === 'Edit' && trackedChange && (

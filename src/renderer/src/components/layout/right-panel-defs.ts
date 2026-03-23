@@ -18,6 +18,8 @@ export const LEFT_SIDEBAR_MAX_WIDTH = 520
 export const RIGHT_PANEL_DEFAULT_WIDTH = 384
 export const RIGHT_PANEL_MIN_WIDTH = 320
 export const RIGHT_PANEL_MAX_WIDTH = 760
+export const RIGHT_PANEL_RAIL_WIDTH = 48
+export const RIGHT_PANEL_RAIL_SLIM_WIDTH = 12
 
 export interface RightPanelTabDef {
   value: RightPanelTab

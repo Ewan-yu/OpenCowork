@@ -496,19 +496,7 @@ export function MessageList({
               )
             }
           )}
-          {!streamingMessageId && messageIds.length > 0 && hasAssistantMessages && onRetry && (
-            <div className="flex justify-center">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 text-xs text-muted-foreground"
-                onClick={onRetry}
-              >
-                <RefreshCw className="size-3" />
-                {t('action.retry', { ns: 'common' })}
-              </Button>
-            </div>
-          )}
+
         </div>
       </div>
 

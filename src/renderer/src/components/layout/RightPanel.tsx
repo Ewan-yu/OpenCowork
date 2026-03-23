@@ -18,10 +18,13 @@ import { cn } from '@renderer/lib/utils'
 import { AnimatePresence } from 'motion/react'
 import { FadeIn } from '@renderer/components/animate-ui'
 import { RightPanelHeader } from './RightPanelHeader'
+import { RightPanelRail } from './RightPanelRail'
 import {
   RIGHT_PANEL_DEFAULT_WIDTH,
   RIGHT_PANEL_SECTION_DEFS,
   RIGHT_PANEL_TAB_DEFS,
+  RIGHT_PANEL_RAIL_WIDTH,
+  RIGHT_PANEL_RAIL_SLIM_WIDTH,
   clampRightPanelWidth
 } from './right-panel-defs'
 
@@ -205,7 +208,6 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const targetPanelWidth = compact
     ? Math.min(rightPanelWidth, RIGHT_PANEL_DEFAULT_WIDTH)
     : rightPanelWidth
-  const computedPanelWidth = rightPanelOpen ? targetPanelWidth : 0
 
   // Ensure rightPanelWidth has a valid initial value if it's somehow 0
   useEffect(() => {
@@ -251,117 +253,53 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
     setTab(nextTab)
   }
 
-  const [isHoveringButton, setIsHoveringButton] = useState(false)
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
-  const handleButtonMouseEnter = (): void => {
-    if (rightPanelOpen) return
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
-    hoverTimeoutRef.current = setTimeout(() => {
-      setIsHoveringButton(true)
-    }, 150)
-  }
-
-  const handleButtonMouseLeave = (): void => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
-    hoverTimeoutRef.current = setTimeout(() => {
-      setIsHoveringButton(false)
-    }, 250)
-  }
-
   return (
     <aside
-      className="relative flex h-full shrink-0 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] z-10"
-      style={{ width: computedPanelWidth }}
+      className="relative flex h-full shrink-0 z-10 transition-[width] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+      style={{ 
+        width: rightPanelOpen 
+          ? targetPanelWidth + RIGHT_PANEL_RAIL_WIDTH 
+          : RIGHT_PANEL_RAIL_SLIM_WIDTH // Base width is slim when closed
+      }}
     >
-      {/* Floating Toggle Button & Hover Menu Wrapper */}
-      <div
-        className="absolute left-0 top-1/2 -translate-x-full -translate-y-1/2 z-50 flex items-center"
-        onMouseEnter={handleButtonMouseEnter}
-        onMouseLeave={handleButtonMouseLeave}
-      >
-        {/* Hover Menu */}
-        <AnimatePresence>
-          {!rightPanelOpen && isHoveringButton && (
-            <FadeIn className="absolute right-full mr-2 py-1.5 w-36 bg-background/95 backdrop-blur-sm border border-border/50 rounded-lg shadow-xl overflow-hidden">
-              {visibleTabs.map((tabDef) => {
-                const TabIcon = tabDef.icon
-                return (
-                  <button
-                    key={tabDef.value}
-                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                    onClick={() => {
-                      setTab(tabDef.value)
-                      setRightPanelOpen(true)
-                      setIsHoveringButton(false)
-                    }}
-                  >
-                    <TabIcon className="size-4 shrink-0" />
-                    <span>{t(`rightPanel.${tabDef.labelKey}`)}</span>
-                  </button>
-                )
-              })}
-            </FadeIn>
-          )}
-        </AnimatePresence>
-
-        {/* Toggle Button */}
-        <button
-          onClick={() => setRightPanelOpen(!rightPanelOpen)}
-          className={cn(
-            'w-5 h-14 bg-background border border-border/50 border-r-0',
-            'rounded-l-xl flex items-center justify-center',
-            'text-muted-foreground hover:text-foreground hover:bg-muted/50 cursor-pointer shadow-sm transition-all duration-300'
-          )}
-          title={
-            rightPanelOpen
-              ? t('rightPanelAction.closePanel', { defaultValue: '收起面板' })
-              : t('rightPanelAction.expandPanel', { defaultValue: '展开面板' })
-          }
-        >
-          {rightPanelOpen ? (
-            <ChevronRight className="size-4" />
-          ) : (
-            <ChevronLeft className="size-4" />
-          )}
-        </button>
-      </div>
+      {/* Rail is always visible or serves as the toggle area */}
+      <RightPanelRail
+        visibleTabs={visibleTabs}
+        activeTab={tab}
+        onSelectTab={handleSelectTab}
+        isOpen={rightPanelOpen}
+        onToggle={() => setRightPanelOpen(!rightPanelOpen)}
+      />
 
       {/* Resize Handle */}
       {rightPanelOpen && (
         <div
-          className="absolute left-0 top-0 z-20 h-full w-1.5 cursor-col-resize hover:bg-primary/20 transition-colors"
+          className="absolute left-0 top-0 z-[60] h-full w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors"
           onMouseDown={startResize}
+          style={{ left: RIGHT_PANEL_RAIL_WIDTH }}
         />
       )}
 
-      {isDragging && <div className="absolute inset-0 z-30" />}
+      {isDragging && <div className="fixed inset-0 z-[100] cursor-col-resize" />}
 
-      {/* Clipping Wrapper for smooth slide animation */}
+      {/* Clipping Wrapper for content */}
       <div
         className={cn(
-          'absolute inset-0 overflow-hidden bg-background shadow-2xl transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
-          rightPanelOpen
-            ? 'border-l border-border/50 rounded-l-2xl opacity-100'
-            : 'border-l-0 rounded-none opacity-0'
+          'h-full overflow-hidden bg-background/40 backdrop-blur-sm transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
+          rightPanelOpen ? 'opacity-100 pointer-events-auto' : 'w-0 opacity-0 pointer-events-none'
         )}
+        style={{ width: rightPanelOpen ? targetPanelWidth : 0 }}
       >
-        {/* Fixed Width Content */}
-        <div
-          className="absolute right-0 top-0 h-full bg-background"
-          style={{ width: targetPanelWidth }}
-        >
+        <div className="h-full border-l border-border/40" style={{ width: targetPanelWidth }}>
           {activeTabDef && (
-            <div className="flex min-w-0 flex-1 flex-col h-full w-full">
+            <div className="flex flex-col h-full w-full">
               <RightPanelHeader
                 activeTabDef={activeTabDef}
-                visibleTabs={visibleTabs}
-                onSelectTab={handleSelectTab}
                 onClose={() => setRightPanelOpen(false)}
                 t={t}
               />
 
-              <div className="flex-1 overflow-auto bg-background p-4">
+              <div className="flex-1 overflow-auto bg-background/20 p-4">
                 <AnimatePresence mode="wait">
                   {tab === 'steps' && (
                     <FadeIn key="steps" className="h-full">

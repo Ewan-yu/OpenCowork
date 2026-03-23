@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useTheme } from 'next-themes'
 
 type AsyncLightHighlighter = React.ComponentType<Record<string, unknown>> & {
   registerLanguage?: (name: string, grammar: unknown) => void
@@ -6,7 +7,8 @@ type AsyncLightHighlighter = React.ComponentType<Record<string, unknown>> & {
 
 interface HighlighterRuntime {
   Highlighter: AsyncLightHighlighter
-  style: Record<string, React.CSSProperties>
+  darkStyle: Record<string, React.CSSProperties>
+  lightStyle: Record<string, React.CSSProperties>
 }
 
 const LANGUAGE_ALIASES: Record<string, string> = {
@@ -75,7 +77,8 @@ async function ensureRuntime(): Promise<HighlighterRuntime> {
     import('react-syntax-highlighter/dist/esm/styles/prism')
   ]).then(([highlighterMod, styleMod]) => ({
     Highlighter: highlighterMod.default as unknown as AsyncLightHighlighter,
-    style: styleMod.oneDark
+    darkStyle: styleMod.oneDark,
+    lightStyle: styleMod.oneLight
   }))
   return runtimePromise
 }
@@ -115,6 +118,7 @@ export function LazySyntaxHighlighter({
   children,
   ...rest
 }: LazySyntaxHighlighterProps): React.JSX.Element {
+  const { resolvedTheme } = useTheme()
   const [runtime, setRuntime] = React.useState<HighlighterRuntime | null>(null)
   const normalizedLanguage = normalizeLanguage(language)
 
@@ -143,7 +147,11 @@ export function LazySyntaxHighlighter({
 
   const Highlighter = runtime.Highlighter
   return (
-    <Highlighter language={normalizedLanguage} style={runtime.style} {...rest}>
+    <Highlighter
+      language={normalizedLanguage}
+      style={resolvedTheme === 'light' ? runtime.lightStyle : runtime.darkStyle}
+      {...rest}
+    >
       {children}
     </Highlighter>
   )

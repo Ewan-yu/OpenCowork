@@ -96,7 +96,7 @@ function ImageOutputBlock({ output }: { output: ToolResultContent }): React.JSX.
             <img
               src={src}
               alt="Tool output"
-              className="max-w-full max-h-72 rounded-md border object-contain bg-zinc-950"
+              className="max-h-72 max-w-full rounded-md border object-contain bg-muted/30 dark:bg-zinc-950"
             />
           </div>
         )
@@ -240,7 +240,9 @@ function ShellTextPane({
         <span
           className={cn(
             'inline-flex rounded px-1 py-0.5',
-            tone === 'error' ? 'bg-red-500/10 text-red-300/80' : 'bg-zinc-800/70 text-zinc-300/70'
+            tone === 'error'
+              ? 'bg-red-500/10 text-red-700/85 dark:text-red-300/80'
+              : 'bg-muted text-foreground/70 dark:bg-zinc-800/70 dark:text-zinc-300/70'
           )}
         >
           {title}
@@ -250,7 +252,9 @@ function ShellTextPane({
       <pre
         className={cn(
           'whitespace-pre-wrap break-words text-[11px]',
-          tone === 'error' ? 'text-red-200/85' : 'text-zinc-300/80'
+          tone === 'error'
+            ? 'text-red-700/85 dark:text-red-200/85'
+            : 'text-foreground/80 dark:text-zinc-300/80'
         )}
       >
         {displayed}
@@ -344,7 +348,7 @@ function BashOutputBlock({
                 ? 'bg-blue-500/10 text-blue-400/70'
                 : process?.status === 'error'
                   ? 'bg-red-500/10 text-red-400/70'
-                  : 'bg-zinc-500/15 text-zinc-300/70'
+                  : 'bg-muted text-muted-foreground dark:bg-zinc-500/15 dark:text-zinc-300/70'
             )}
           >
             {statusText}
@@ -366,31 +370,33 @@ function BashOutputBlock({
       </div>
       <div
         ref={scrollRef}
-        className="rounded-md border bg-zinc-950 overflow-auto max-h-72 text-[11px] font-mono"
+        className="max-h-72 overflow-auto rounded-md border bg-muted/30 text-[11px] font-mono dark:bg-zinc-950"
         style={{ fontFamily: MONO_FONT }}
       >
         {text ? (
           <div className="px-3 py-2 space-y-2">
             {summary && (
               <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground/50">
-                <span className="rounded bg-zinc-800/80 px-1 py-0.5">{summary.mode ?? 'full'}</span>
+                <span className="rounded bg-muted px-1 py-0.5 dark:bg-zinc-800/80">
+                  {summary.mode ?? 'full'}
+                </span>
                 {summary.noisy && (
-                  <span className="rounded bg-amber-500/10 px-1 py-0.5 text-amber-300/80">
+                  <span className="rounded bg-amber-500/10 px-1 py-0.5 text-amber-700/85 dark:text-amber-300/80">
                     noise reduced
                   </span>
                 )}
                 {typeof summary.totalLines === 'number' && (
-                  <span className="rounded bg-zinc-800/60 px-1 py-0.5">
+                  <span className="rounded bg-muted/70 px-1 py-0.5 dark:bg-zinc-800/60">
                     {summary.totalLines} lines
                   </span>
                 )}
                 {typeof summary.errorLikeLines === 'number' && summary.errorLikeLines > 0 && (
-                  <span className="rounded bg-red-500/10 px-1 py-0.5 text-red-300/80">
+                  <span className="rounded bg-red-500/10 px-1 py-0.5 text-red-700/85 dark:text-red-300/80">
                     {summary.errorLikeLines} error-like
                   </span>
                 )}
                 {typeof summary.warningLikeLines === 'number' && summary.warningLikeLines > 0 && (
-                  <span className="rounded bg-amber-500/10 px-1 py-0.5 text-amber-300/80">
+                  <span className="rounded bg-amber-500/10 px-1 py-0.5 text-amber-700/85 dark:text-amber-300/80">
                     {summary.warningLikeLines} warning-like
                   </span>
                 )}
@@ -406,11 +412,13 @@ function BashOutputBlock({
                 />
               </>
             ) : (
-              <pre className="whitespace-pre-wrap break-words text-zinc-300/80">{displayed}</pre>
+              <pre className="whitespace-pre-wrap break-words text-foreground/80 dark:text-zinc-300/80">
+                {displayed}
+              </pre>
             )}
           </div>
         ) : (
-          <pre className="px-3 py-2 whitespace-pre-wrap break-words text-zinc-500/70">
+          <pre className="px-3 py-2 whitespace-pre-wrap break-words text-muted-foreground/70 dark:text-zinc-500/70">
             {t('toolCall.noOutputYet')}
           </pre>
         )}
@@ -572,7 +580,7 @@ function GrepOutputBlock({
         <CopyBtn text={output} />
       </div>
       <div
-        className="rounded-md border bg-zinc-950 overflow-auto max-h-72 text-[11px] font-mono divide-y divide-zinc-800"
+        className="max-h-72 overflow-auto rounded-md border bg-muted/30 text-[11px] font-mono divide-y divide-border dark:bg-zinc-950 dark:divide-zinc-800"
         style={{ fontFamily: MONO_FONT }}
       >
         {groups.map(([file, matches]) => (
@@ -590,8 +598,10 @@ function GrepOutputBlock({
               {file.split(/[\\/]/).slice(-3).join('/')}
             </div>
             {matches.map((m, i) => (
-              <div key={i} className="flex gap-2 text-zinc-400">
-                <span className="select-none text-zinc-600 w-5 text-right shrink-0">{m.line}</span>
+              <div key={i} className="flex gap-2 text-foreground/70 dark:text-zinc-400">
+                <span className="w-5 shrink-0 select-none text-right text-muted-foreground/70 dark:text-zinc-600">
+                  {m.line}
+                </span>
                 <span className="truncate">
                   <HighlightText text={m.text} pattern={pattern} />
                 </span>
@@ -624,7 +634,7 @@ function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
         <CopyBtn text={parsed.join('\n')} />
       </div>
       <div
-        className="rounded-md border bg-zinc-950 overflow-auto max-h-48 px-3 py-2 text-[11px] font-mono text-zinc-400 space-y-0.5"
+        className="max-h-48 overflow-auto rounded-md border bg-muted/30 px-3 py-2 text-[11px] font-mono text-foreground/70 space-y-0.5 dark:bg-zinc-950 dark:text-zinc-400"
         style={{ fontFamily: MONO_FONT }}
       >
         {visibleItems.map((p, i) => (
@@ -678,7 +688,7 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
         <CopyBtn text={parsed.map((e) => e.name).join('\n')} />
       </div>
       <div
-        className="rounded-md border bg-zinc-950 overflow-auto max-h-48 px-3 py-2 text-[11px] font-mono space-y-0.5"
+        className="max-h-48 overflow-auto rounded-md border bg-muted/30 px-3 py-2 text-[11px] font-mono space-y-0.5 dark:bg-zinc-950"
         style={{ fontFamily: MONO_FONT }}
       >
         {dirs.map((e) => (
@@ -690,7 +700,7 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
         {files.map((e) => (
           <div
             key={e.name}
-            className="flex items-center gap-1.5 text-zinc-400 cursor-pointer hover:text-blue-400 transition-colors"
+            className="flex cursor-pointer items-center gap-1.5 text-foreground/70 transition-colors hover:text-blue-400 dark:text-zinc-400"
             title={`Click to insert: ${e.path || e.name}`}
             onClick={() => {
               const short = (e.path || e.name).split(/[\\/]/).slice(-2).join('/')
@@ -949,8 +959,8 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
           line.type === 'del'
             ? 'text-red-400/40'
             : line.type === 'add'
-              ? 'text-green-400/40'
-              : 'text-zinc-600'
+              ? 'text-green-600/50 dark:text-green-400/40'
+              : 'text-muted-foreground/70 dark:text-zinc-600'
         )}
       >
         {line.oldNum ?? line.newNum ?? ''}
@@ -958,9 +968,9 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
       <span
         className={cn(
           'px-1.5 flex-1 font-mono',
-          line.type === 'del' && 'text-red-300/80',
-          line.type === 'add' && 'text-green-300/80',
-          line.type === 'keep' && 'text-zinc-500'
+          line.type === 'del' && 'text-red-700/85 dark:text-red-300/80',
+          line.type === 'add' && 'text-green-700/85 dark:text-green-300/80',
+          line.type === 'keep' && 'text-foreground/70 dark:text-zinc-500'
         )}
         style={{ fontFamily: MONO_FONT, whiteSpace: 'pre-wrap' }}
       >
@@ -983,7 +993,7 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
         />
       </div>
       <div
-        className="rounded-md border bg-zinc-950 overflow-auto max-h-64 text-[11px] font-mono leading-relaxed"
+        className="max-h-64 overflow-auto rounded-md border bg-muted/30 text-[11px] font-mono leading-relaxed dark:bg-zinc-950"
         style={{ fontFamily: MONO_FONT }}
       >
         {chunks.map((chunk, ci) => {
@@ -996,7 +1006,7 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
           return (
             <button
               key={`c${ci}`}
-              className="flex w-full items-center justify-center py-0.5 text-[9px] text-zinc-500/50 hover:text-zinc-400 hover:bg-zinc-800/30 transition-colors border-y border-zinc-800/30"
+              className="flex w-full items-center justify-center border-y border-border/50 py-0.5 text-[9px] text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-foreground dark:border-zinc-800/30 dark:text-zinc-500/50 dark:hover:bg-zinc-800/30 dark:hover:text-zinc-400"
               onClick={() => setExpandedChunks((prev) => new Set([...prev, ci]))}
             >
               {t('toolCall.unchangedLines', { count: chunk.count })}
@@ -1054,7 +1064,7 @@ function StructuredInput({
       <div className="space-y-1.5">
         {description && <p className="text-xs text-muted-foreground/60 italic">{description}</p>}
         <div
-          className="rounded-md border bg-zinc-950 text-[11px] font-mono overflow-auto max-h-40"
+          className="max-h-40 overflow-auto rounded-md border bg-muted/30 text-[11px] font-mono dark:bg-zinc-950"
           style={{ fontFamily: MONO_FONT }}
         >
           <div className="flex items-start gap-1.5 px-3 py-2 text-green-400/80">
@@ -1163,7 +1173,7 @@ function StructuredInput({
           )}
           {visiblePreview && (
             <pre
-              className="rounded-md border bg-zinc-950 px-2.5 py-2 text-[11px] text-zinc-300/80 overflow-auto max-h-36 whitespace-pre-wrap break-words"
+              className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2.5 py-2 text-[11px] text-foreground/80 dark:bg-zinc-950 dark:text-zinc-300/80"
               style={{ fontFamily: MONO_FONT }}
             >
               {visiblePreview}

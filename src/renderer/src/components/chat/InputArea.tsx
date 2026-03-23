@@ -397,6 +397,45 @@ export function InputArea({
       Math.min(MAX_INPUT_HEIGHT, Math.floor(window.innerHeight * FALLBACK_MAX_VIEWPORT_RATIO))
     )
   }, [])
+  const [autoMaxInputHeight, setAutoMaxInputHeight] = React.useState(() =>
+    Math.max(
+      MIN_INPUT_HEIGHT,
+      Math.min(MAX_INPUT_HEIGHT, Math.floor(window.innerHeight * FALLBACK_MAX_VIEWPORT_RATIO))
+    )
+  )
+
+  React.useEffect(() => {
+    const updateAutoMaxInputHeight = (): void => {
+      setAutoMaxInputHeight(getMaxInputHeight())
+    }
+
+    updateAutoMaxInputHeight()
+
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            updateAutoMaxInputHeight()
+          })
+    const container = containerRef.current
+    const root = rootRef.current
+    const messageListEl = root?.parentElement?.querySelector(
+      '[data-message-list]'
+    ) as HTMLElement | null
+
+    if (observer && container) {
+      observer.observe(container)
+    }
+    if (observer && messageListEl) {
+      observer.observe(messageListEl)
+    }
+
+    window.addEventListener('resize', updateAutoMaxInputHeight)
+    return () => {
+      window.removeEventListener('resize', updateAutoMaxInputHeight)
+      observer?.disconnect()
+    }
+  }, [getMaxInputHeight])
 
   React.useEffect(() => {
     const onMouseMove = (e: MouseEvent): void => {
@@ -1708,7 +1747,7 @@ export function InputArea({
         <div
           ref={containerRef}
           className={`relative rounded-lg border bg-background shadow-lg transition-shadow focus-within:shadow-xl focus-within:ring-1 focus-within:ring-ring/20 flex flex-col ${dragging ? 'ring-2 ring-primary/50' : ''}`}
-          style={inputHeight ? { height: inputHeight } : undefined}
+          style={inputHeight ? { height: inputHeight } : { maxHeight: autoMaxInputHeight }}
         >
           {/* Top drag handle */}
           <div className="h-1.5 cursor-row-resize rounded-t-lg" onMouseDown={handleDragStart} />
@@ -2164,7 +2203,9 @@ export function InputArea({
                         }}
                       >
                         <FolderOpen className="size-3.5 shrink-0" />
-                        <span>{t('input.noWorkingFolderSelected', { defaultValue: '请先选择工作目录' })}</span>
+                        <span>
+                          {t('input.noWorkingFolderSelected', { defaultValue: '请先选择工作目录' })}
+                        </span>
                       </button>
                     ) : fileSearchLoading ? (
                       <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
@@ -2296,7 +2337,7 @@ export function InputArea({
               <ModelSwitcher />
 
               {/* Web search toggle */}
-              {mode !== 'chat' && (
+              {mode !== 'chat' && webSearchEnabled && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
