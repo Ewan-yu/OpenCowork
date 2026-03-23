@@ -1,5 +1,11 @@
 # ── electron-build ─────────────────────────────────────────
 FROM electronuserland/builder:22-wine AS electron-builder
+# @jitsi/robotjs compiles against X11/libpng on Linux (postinstall runs electron-builder install-app-deps)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxtst-dev \
+    libx11-dev \
+    libpng++-dev \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY package.json ./
 RUN npm install
