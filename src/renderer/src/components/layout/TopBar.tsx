@@ -15,6 +15,7 @@ import {
 import { Button } from '@renderer/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
+import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { SidebarTrigger } from '@renderer/components/ui/sidebar'
 import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
@@ -24,6 +25,7 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import { cn } from '@renderer/lib/utils'
 import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
 import { WindowControls } from './WindowControls'
 
@@ -101,6 +103,16 @@ export function TopBar(): React.JSX.Element {
     setTheme(theme === 'dark' ? 'light' : 'dark')
   }
 
+  const handleToggleAutoApprove = async (): Promise<void> => {
+    if (!autoApprove) {
+      const ok = await confirm({ title: t('autoApproveConfirm') })
+      if (!ok) return
+    }
+
+    useSettingsStore.getState().updateSettings({ autoApprove: !autoApprove })
+    toast.success(t(autoApprove ? 'autoApproveOff' : 'autoApproveOn'))
+  }
+
   return (
     <header className="titlebar-drag relative flex h-10 w-full shrink-0 items-center gap-2 overflow-hidden border-b bg-background/80 backdrop-blur-md pl-4 pr-[132px]">
       <SidebarTrigger className="titlebar-no-drag shrink-0 -ml-1" />
@@ -168,17 +180,29 @@ export function TopBar(): React.JSX.Element {
           </Tooltip>
         )}
 
-        {/* Auto-approve warning */}
-        {autoApprove && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="titlebar-no-drag rounded bg-destructive/10 px-1.5 py-0.5 text-[9px] font-medium text-destructive cursor-default">
-                AUTO
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{t('topbar.autoApproveOn')}</TooltipContent>
-          </Tooltip>
-        )}
+        {/* Auto-approve toggle */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-pressed={autoApprove}
+              aria-label={autoApprove ? t('topbar.autoApproveOn') : t('topbar.autoApproveOff')}
+              className={cn(
+                'titlebar-no-drag rounded px-1.5 py-0.5 text-[9px] font-medium transition-colors',
+                autoApprove
+                  ? 'bg-destructive/10 text-destructive hover:bg-destructive/15'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+              )}
+              onClick={() => void handleToggleAutoApprove()}
+            >
+              AUTO
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {autoApprove ? t('topbar.autoApproveOn') : t('topbar.autoApproveOff')} ·{' '}
+            {t('topbar.clickToSwitch')}
+          </TooltipContent>
+        </Tooltip>
 
         {/* Pending approval indicator */}
         {pendingApprovals > 0 && (

@@ -66,6 +66,7 @@
     "clarifyAutoAcceptOn": "Clarify auto-accept is enabled — AskUserQuestion recommended answers are selected and submitted automatically",
     "clarifyAutoAcceptOff": "Clarify auto-accept is disabled",
     "autoApproveOn": "Auto-approve is ON — all tools run without confirmation",
+    "autoApproveOff": "Auto-approve is OFF — tool calls require confirmation",
     "pendingCount": "{{count}} pending",
     "toolCallAwaiting": "Tool call awaiting approval — press Y to allow, N to deny",
     "subAgentsRunning": "{{count}} sub-agents running",
