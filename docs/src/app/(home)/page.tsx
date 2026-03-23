@@ -119,7 +119,7 @@ const downloads = [
     borderColor: 'group-hover:border-blue-500/50',
     files: [
       {
-        name: 'Windows Installer (.exe)',
+        name: 'Windows Installer (AMD64 / x64)',
         url: '/downloads/OpenCowork-Windows-Setup.exe',
         isLocal: true
       },
