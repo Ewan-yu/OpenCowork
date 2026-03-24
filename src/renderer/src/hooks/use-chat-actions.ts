@@ -55,7 +55,7 @@ import {
   serializeSystemCommand,
   type SystemCommandSnapshot
 } from '@renderer/lib/commands/system-command'
-import type { AgentLoopConfig } from '@renderer/lib/agent/types'
+import type { AgentEvent, AgentLoopConfig } from '@renderer/lib/agent/types'
 import { ApiStreamError } from '@renderer/lib/ipc/api-stream'
 import { compressMessages } from '@renderer/lib/agent/context-compression'
 import type { CompressionConfig } from '@renderer/lib/agent/context-compression'
@@ -877,6 +877,19 @@ function compactStreamingToolInput(input: Record<string, unknown>): Record<strin
   }
 
   return compact
+}
+
+function shouldHandleAgentEventAfterAbort(event: AgentEvent): boolean {
+  switch (event.type) {
+    case 'tool_call_result':
+    case 'iteration_end':
+    case 'message_end':
+    case 'loop_end':
+    case 'error':
+      return true
+    default:
+      return false
+  }
 }
 
 function createSubAgentEventBuffer(sessionId: string): {
@@ -1816,7 +1829,9 @@ export function useChatActions(): {
           }
 
           for await (const event of loop) {
-            if (abortController.signal.aborted) break
+            if (abortController.signal.aborted && !shouldHandleAgentEventAfterAbort(event)) {
+              continue
+            }
 
             switch (event.type) {
               case 'thinking_delta':
