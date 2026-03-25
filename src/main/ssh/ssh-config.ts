@@ -220,6 +220,11 @@ export function getSshConfigSnapshot(): SshConfigData {
   return cachedConfig
 }
 
+export function setSshConfigSnapshot(data: SshConfigData): void {
+  writeConfigToDisk(data)
+  setCache(data, true)
+}
+
 export function listSshGroups(): SshConfigGroup[] {
   return getSshConfigSnapshot()
     .groups.slice()

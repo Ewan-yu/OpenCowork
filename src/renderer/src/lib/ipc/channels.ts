@@ -247,6 +247,11 @@ export const IPC = {
   // SSH Auth
   SSH_AUTH_INSTALL_PUBLIC_KEY: 'ssh:auth:install-public-key',
 
+  // SSH Import / Export
+  SSH_EXPORT: 'ssh:export',
+  SSH_IMPORT_PREVIEW: 'ssh:import:preview',
+  SSH_IMPORT_APPLY: 'ssh:import:apply',
+
   // SSH Remote Exec
   SSH_EXEC: 'ssh:exec'
 } as const

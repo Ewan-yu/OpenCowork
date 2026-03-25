@@ -19,6 +19,13 @@ import {
   type SshConfigConnection
 } from '../ssh/ssh-config'
 import {
+  applySshImport,
+  exportSshConfig,
+  previewSshImport,
+  type SshImportAction,
+  type SshImportSource
+} from '../ssh/ssh-transfer'
+import {
   buildFileSnapshot,
   buildOpaqueExistingSnapshot,
   recordSshTextWriteChange,
@@ -1487,6 +1494,47 @@ export function registerSshHandlers(): void {
       return { success: false, error: String(err) }
     }
   })
+
+  ipcMain.handle(
+    'ssh:export',
+    async (_event, args: { filePath: string; connectionIds?: string[] | null }) => {
+      try {
+        exportSshConfig(args.filePath, args.connectionIds ?? undefined)
+        return { success: true }
+      } catch (err) {
+        return { error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'ssh:import:preview',
+    async (_event, args: { filePath: string; source: SshImportSource }) => {
+      try {
+        return previewSshImport(args.filePath, args.source)
+      } catch (err) {
+        return { error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'ssh:import:apply',
+    async (
+      _event,
+      args: {
+        filePath: string
+        source: SshImportSource
+        decisions: Array<{ importId: string; action: SshImportAction }>
+      }
+    ) => {
+      try {
+        return applySshImport(args.filePath, args.source, args.decisions)
+      } catch (err) {
+        return { error: String(err) }
+      }
+    }
+  )
 
   // ── Terminal Session: Connect ──
 
