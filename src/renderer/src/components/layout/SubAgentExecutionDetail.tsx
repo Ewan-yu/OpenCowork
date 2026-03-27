@@ -212,7 +212,12 @@ export function SubAgentExecutionDetail({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        <div className="grid min-h-full gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div
+          className={cn(
+            'grid min-h-full gap-5',
+            !embedded && 'xl:grid-cols-[minmax(0,1fr)_320px]'
+          )}
+        >
           <div className="min-w-0 space-y-5">
             <section className="rounded-2xl border border-border/60 bg-background/70 p-5">
               <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/65">
@@ -279,7 +284,9 @@ export function SubAgentExecutionDetail({
             </section>
           </div>
 
-          <aside className="space-y-5 xl:sticky xl:top-0 xl:self-start">
+          <aside
+            className={cn('space-y-5', !embedded && 'xl:sticky xl:top-0 xl:self-start')}
+          >
             <section className="rounded-2xl border border-border/60 bg-background/70 p-5">
               <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/65">
                 <Bot className="size-3.5" />

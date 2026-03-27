@@ -1410,7 +1410,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
       >
         <DialogContent
           showCloseButton={false}
-          className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[min(1400px,calc(100vw-2rem))] overflow-hidden p-0"
+          className="h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[1400px] overflow-hidden p-0 sm:max-w-[1400px]"
         >
           <DialogHeader className="sr-only">
             <DialogTitle>

@@ -448,7 +448,7 @@ function SubAgentRunCard({
 
       {expanded ? (
         <div className="border-t border-border/60 px-4 py-4">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="grid gap-4">
             <div className="min-w-0 space-y-4">
               <section>
                 <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/55">
