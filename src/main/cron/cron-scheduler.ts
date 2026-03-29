@@ -1,6 +1,7 @@
 import cron from 'node-cron'
 import { BrowserWindow } from 'electron'
 import { getDb } from '../db/database'
+import { runCronAgentInBackground } from './cron-agent-background'
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -146,22 +147,47 @@ function onJobFired(job: CronJobRecord): void {
       'UPDATE cron_jobs SET last_fired_at = ?, fire_count = fire_count + 1 WHERE id = ?'
     ).run(Date.now(), job.id)
 
-    // Forward to renderer — cron-agent-runner.ts handles execution
+    const firedAt = Date.now()
+
+    // Forward to renderer for UI updates only.
     sendToRenderer('cron:fired', {
       jobId: job.id,
       name: job.name,
       prompt: job.prompt,
       agentId: job.agent_id,
       model: job.model,
+      sourceProviderId: job.source_provider_id,
       workingFolder: job.working_folder,
       sessionId: job.session_id,
-      firedAt: Date.now(),
+      firedAt,
       deliveryMode: job.delivery_mode,
       deliveryTarget: job.delivery_target,
       maxIterations: job.max_iterations,
       pluginId: job.plugin_id,
       pluginChatId: job.plugin_chat_id
     })
+
+    runCronAgentInBackground(
+      {
+        jobId: job.id,
+        name: job.name,
+        sessionId: job.session_id,
+        prompt: job.prompt,
+        agentId: job.agent_id,
+        model: job.model,
+        sourceProviderId: job.source_provider_id,
+        workingFolder: job.working_folder,
+        firedAt,
+        deliveryMode: job.delivery_mode,
+        deliveryTarget: job.delivery_target,
+        maxIterations: job.max_iterations,
+        pluginId: job.plugin_id,
+        pluginChatId: job.plugin_chat_id
+      },
+      () => {
+        markFinished(job.id)
+      }
+    )
 
     // Handle delete_after_run: stop the schedule handle now (prevent re-fire),
     // but defer DB deletion + UI removal until the agent run finishes (cron:run-finished).
@@ -176,6 +202,7 @@ function onJobFired(job: CronJobRecord): void {
     }
   } catch (err) {
     console.error('[CronScheduler] Job fire error:', err)
+    markFinished(job.id)
     sendToRenderer('cron:fired', {
       jobId: job.id,
       error: err instanceof Error ? err.message : String(err)

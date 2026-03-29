@@ -146,6 +146,10 @@ export const IPC = {
   CRON_FIRED: 'cron:fired',
   CRON_JOB_REMOVED: 'cron:job-removed',
   CRON_RUN_FINISHED: 'cron:run-finished',
+  CRON_ABORT_RUN: 'cron:abort-run',
+  CRON_RUN_STARTED: 'cron:run-started',
+  CRON_RUN_PROGRESS: 'cron:run-progress',
+  CRON_RUN_LOG_APPENDED: 'cron:run-log-appended',
 
   // Notify
   NOTIFY_DESKTOP: 'notify:desktop',

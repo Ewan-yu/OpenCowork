@@ -39,7 +39,6 @@ import {
 } from '@renderer/stores/cron-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
-import { abortCronAgent } from '@renderer/lib/tools/cron-agent-runner'
 import { toast } from 'sonner'
 
 const MONO_FONT = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
@@ -212,8 +211,19 @@ function CronJobCard({
   }
 
   const handleAbortAgent = (): void => {
-    abortCronAgent(job.id)
-    toast.info('已中止 Agent 执行')
+    void ipcClient
+      .invoke(IPC.CRON_ABORT_RUN, { jobId: job.id })
+      .then((result) => {
+        const payload = result as { success?: boolean; error?: string }
+        if (payload?.success) {
+          toast.info('已中止 Agent 执行')
+        } else {
+          toast.error(payload?.error ?? '中止 Agent 执行失败')
+        }
+      })
+      .catch((err) => {
+        toast.error(err instanceof Error ? err.message : '中止 Agent 执行失败')
+      })
   }
 
   return (

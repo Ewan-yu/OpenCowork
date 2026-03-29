@@ -23,6 +23,7 @@ import {
 
 const DATA_DIR = path.join(os.homedir(), '.open-cowork')
 const PLUGINS_FILE = path.join(DATA_DIR, 'plugins.json')
+let activeChannelManager: ChannelManager | null = null
 
 async function captureQrPageAsDataUrl(url: string): Promise<string | undefined> {
   const win = new BrowserWindow({
@@ -206,7 +207,40 @@ export async function autoStartChannels(channelManager: ChannelManager): Promise
 
 let _handlersRegistered = false
 
+export async function executePluginAction(args: {
+  pluginId: string
+  action: string
+  params: Record<string, unknown>
+}): Promise<unknown> {
+  const { pluginId, action, params } = args
+  const service = activeChannelManager?.getService(pluginId)
+  if (!service) {
+    throw new Error(`Plugin ${pluginId} is not running`)
+  }
+
+  switch (action) {
+    case 'sendMessage': {
+      const target = service as typeof service & {
+        sendWakeupMessage?: (chatId: string, content: string) => Promise<{ messageId: string }>
+      }
+      if (params.isWakeup === true && typeof target.sendWakeupMessage === 'function') {
+        return await target.sendWakeupMessage(params.chatId as string, params.content as string)
+      }
+      return await service.sendMessage(params.chatId as string, params.content as string)
+    }
+    case 'replyMessage':
+      return await service.replyMessage(params.messageId as string, params.content as string)
+    case 'getGroupMessages':
+      return await service.getGroupMessages(params.chatId as string, (params.count as number) ?? 20)
+    case 'listGroups':
+      return await service.listGroups()
+    default:
+      throw new Error(`Unknown action: ${action}`)
+  }
+}
+
 export function registerChannelHandlers(channelManager: ChannelManager): void {
+  activeChannelManager = channelManager
   if (_handlersRegistered) return
   _handlersRegistered = true
 
@@ -530,34 +564,7 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
         params
       }: { pluginId: string; action: string; params: Record<string, unknown> }
     ) => {
-      const service = channelManager.getService(pluginId)
-      if (!service) {
-        throw new Error(`Plugin ${pluginId} is not running`)
-      }
-
-      // Dispatch to the unified MessagingPluginService method with named params
-      switch (action) {
-        case 'sendMessage': {
-          const target = service as typeof service & {
-            sendWakeupMessage?: (chatId: string, content: string) => Promise<{ messageId: string }>
-          }
-          if (params.isWakeup === true && typeof target.sendWakeupMessage === 'function') {
-            return await target.sendWakeupMessage(params.chatId as string, params.content as string)
-          }
-          return await service.sendMessage(params.chatId as string, params.content as string)
-        }
-        case 'replyMessage':
-          return await service.replyMessage(params.messageId as string, params.content as string)
-        case 'getGroupMessages':
-          return await service.getGroupMessages(
-            params.chatId as string,
-            (params.count as number) ?? 20
-          )
-        case 'listGroups':
-          return await service.listGroups()
-        default:
-          throw new Error(`Unknown action: ${action}`)
-      }
+      return await executePluginAction({ pluginId, action, params })
     }
   )
 

@@ -34,7 +34,6 @@ import i18n from './locales'
 import { cronEvents } from './lib/tools/cron-events'
 import { useCronStore } from './stores/cron-store'
 import { ipcClient } from './lib/ipc/ipc-client'
-import { runCronAgent } from './lib/tools/cron-agent-runner'
 import { useChatStore as _useChatStore } from './stores/chat-store'
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from './lib/api/types'
@@ -249,25 +248,6 @@ function App(): React.JSX.Element {
       }
       cronEvents.emit({ type: 'fired', ...d })
       useCronStore.getState().updateJob(d.jobId, { lastFiredAt: Date.now() })
-
-      // Launch Agent autonomously
-      if (d.prompt) {
-        runCronAgent({
-          jobId: d.jobId,
-          name: d.name,
-          sessionId: d.sessionId ?? null,
-          prompt: d.prompt,
-          agentId: d.agentId,
-          model: d.model,
-          workingFolder: d.workingFolder,
-          firedAt: d.firedAt,
-          deliveryMode: d.deliveryMode,
-          deliveryTarget: d.deliveryTarget,
-          maxIterations: d.maxIterations,
-          pluginId: d.pluginId,
-          pluginChatId: d.pluginChatId
-        })
-      }
     })
 
     const offRemoved = ipcClient.on('cron:job-removed', (data: unknown) => {
@@ -278,6 +258,56 @@ function App(): React.JSX.Element {
         reason: d.reason as 'delete_after_run' | 'manual'
       })
       useCronStore.getState().removeJob(d.jobId)
+    })
+
+    const offRunStarted = ipcClient.on('cron:run-started', (data: unknown) => {
+      const d = data as { jobId: string; runId: string }
+      useCronStore.getState().setExecutionStarted(d.jobId)
+    })
+
+    const offRunProgress = ipcClient.on('cron:run-progress', (data: unknown) => {
+      const d = data as {
+        jobId: string
+        runId: string
+        iteration: number
+        toolCalls: number
+        elapsed: number
+        currentStep?: string
+      }
+      useCronStore.getState().updateExecutionProgress(d.jobId, {
+        iteration: d.iteration,
+        toolCalls: d.toolCalls,
+        currentStep: d.currentStep
+      })
+    })
+
+    const offRunLog = ipcClient.on('cron:run-log-appended', (data: unknown) => {
+      const d = data as {
+        jobId: string
+        timestamp: number
+        type: 'start' | 'text' | 'tool_call' | 'tool_result' | 'error' | 'end'
+        content: string
+      }
+      useCronStore.getState().appendAgentLog(d)
+    })
+
+    const offRunFinishedIpc = ipcClient.on('cron:run-finished', (data: unknown) => {
+      const d = data as {
+        jobId: string
+        runId: string
+        status: 'success' | 'error' | 'aborted'
+        toolCallCount: number
+        jobName?: string
+        sessionId?: string | null
+        deliveryMode?: string
+        deliveryTarget?: string | null
+        outputSummary?: string
+        error?: string
+      }
+      useCronStore.getState().clearExecutionState(d.jobId)
+      void useCronStore.getState().loadJobs()
+      void useCronStore.getState().loadRuns()
+      cronEvents.emit({ type: 'run_finished', ...d })
     })
 
     // notify:session-message — inject a message into a session from the Notify tool
@@ -338,6 +368,10 @@ function App(): React.JSX.Element {
     return () => {
       offFired()
       offRemoved()
+      offRunStarted()
+      offRunProgress()
+      offRunLog()
+      offRunFinishedIpc()
       offNotify()
       offRunFinished()
     }

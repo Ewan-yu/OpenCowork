@@ -11,6 +11,11 @@ import {
   type CronJobRecord,
   type CronRunRecord
 } from '../cron/cron-scheduler'
+import {
+  abortCronAgentRun,
+  getCronExecutionState,
+  runCronAgentInBackground
+} from '../cron/cron-agent-background'
 
 interface CronAddArgs {
   name: string
@@ -176,6 +181,8 @@ interface CronJobApi {
   sourceProviderId: string | null
   scheduled: boolean
   executing: boolean
+  executionStartedAt: number | null
+  executionProgress: { iteration: number; toolCalls: number; currentStep?: string } | null
 }
 
 interface CronRunApi {
@@ -231,6 +238,7 @@ function jobToApi(
   scheduledIds: Set<string>,
   runningIds: Set<string>
 ): CronJobApi {
+  const runtimeState = getCronExecutionState(r.id)
   return {
     id: r.id,
     sessionId: r.session_id,
@@ -263,7 +271,9 @@ function jobToApi(
     sourceProjectName: r.source_project_name,
     sourceProviderId: r.source_provider_id,
     scheduled: scheduledIds.has(r.id),
-    executing: runningIds.has(r.id)
+    executing: runningIds.has(r.id),
+    executionStartedAt: runtimeState?.startedAt ?? null,
+    executionProgress: runtimeState?.progress ?? null
   }
 }
 
@@ -582,6 +592,7 @@ export function registerCronHandlers(): void {
         return { error: `Job "${row.id}" is already running or concurrency limit reached` }
       }
 
+      const firedAt = Date.now()
       const win = BrowserWindow.getAllWindows()[0]
       if (win && !win.isDestroyed()) {
         win.webContents.send('cron:fired', {
@@ -590,9 +601,10 @@ export function registerCronHandlers(): void {
           prompt: row.prompt,
           agentId: row.agent_id,
           model: row.model,
+          sourceProviderId: row.source_provider_id,
           workingFolder: row.working_folder,
           sessionId: row.session_id,
-          firedAt: Date.now(),
+          firedAt,
           deliveryMode: row.delivery_mode,
           deliveryTarget: row.delivery_target,
           maxIterations: row.max_iterations,
@@ -603,12 +615,42 @@ export function registerCronHandlers(): void {
 
       db.prepare(
         'UPDATE cron_jobs SET last_fired_at = ?, fire_count = fire_count + 1 WHERE id = ?'
-      ).run(Date.now(), row.id)
+      ).run(firedAt, row.id)
+
+      runCronAgentInBackground(
+        {
+          jobId: row.id,
+          name: row.name,
+          sessionId: row.session_id,
+          prompt: row.prompt,
+          agentId: row.agent_id,
+          model: row.model,
+          sourceProviderId: row.source_provider_id,
+          workingFolder: row.working_folder,
+          firedAt,
+          deliveryMode: row.delivery_mode,
+          deliveryTarget: row.delivery_target,
+          maxIterations: row.max_iterations,
+          pluginId: row.plugin_id,
+          pluginChatId: row.plugin_chat_id
+        },
+        () => {
+          markFinished(row.id)
+        }
+      )
 
       return { success: true, jobId: args.jobId }
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) }
     }
+  })
+
+  ipcMain.handle('cron:abort-run', async (_event, args: { jobId: string }) => {
+    if (!args?.jobId) return { error: 'jobId is required' }
+    const aborted = abortCronAgentRun(args.jobId)
+    return aborted
+      ? { success: true, jobId: args.jobId }
+      : { error: `Job "${args.jobId}" is not running` }
   })
 
   ipcMain.handle(
