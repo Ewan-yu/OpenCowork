@@ -88,6 +88,7 @@ const modeIcons: Record<SessionMode, React.ReactNode> = {
 
 type SessionListItem = ReturnType<typeof mapSession>
 type BucketKey = 'today' | 'recentThreeDays' | 'recentWeek' | 'oneMonth' | 'older'
+type FolderPickerTarget = { type: 'create' } | { type: 'project'; projectId: string }
 
 function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'][number]): {
   id: string
@@ -166,6 +167,13 @@ function formatSessionStamp(updatedAt: number): string {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
   return date.toLocaleDateString([], { month: 'numeric', day: 'numeric' })
+}
+
+function deriveProjectNameFromFolder(folderPath?: string | null): string {
+  const normalized = folderPath?.trim().replace(/[\\/]+$/, '')
+  if (!normalized) return 'New Project'
+  const parts = normalized.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] || 'New Project'
 }
 
 function downloadMarkdown(filename: string, content: string): void {
@@ -265,7 +273,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     | { type: 'session'; id: string; title: string }
     | null
   >(null)
-  const [folderPickerProjectId, setFolderPickerProjectId] = useState<string | null>(null)
+  const [folderPickerTarget, setFolderPickerTarget] = useState<FolderPickerTarget | null>(null)
   const runningSubAgentSessionIds = useMemo(
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
     [runningSubAgentSessionIdsSig]
@@ -296,6 +304,8 @@ export function WorkspaceSidebar(): React.JSX.Element {
   )
   const activeProject =
     visibleProjects.find((project) => project.id === activeProjectId) ?? visibleProjects[0] ?? null
+  const folderPickerProjectId =
+    folderPickerTarget?.type === 'project' ? folderPickerTarget.projectId : null
   const folderPickerProject = folderPickerProjectId
     ? projects.find((project) => project.id === folderPickerProjectId)
     : undefined
@@ -388,12 +398,23 @@ export function WorkspaceSidebar(): React.JSX.Element {
     useUIStore.getState().navigateToSession()
   }, [])
 
-  const handleCreateProject = useCallback(async () => {
-    const projectId = await createProject({ name: 'New Project' })
-    setActiveProject(projectId)
-    useUIStore.getState().navigateToProject()
-    toast.success(t('sidebar_toast.projectCreated', { defaultValue: '项目已创建' }))
-  }, [createProject, setActiveProject, t])
+  const handleCreateProject = useCallback(() => {
+    setFolderPickerTarget({ type: 'create' })
+  }, [])
+
+  const handleCreateProjectWithDirectory = useCallback(
+    async (workingFolder: string, sshConnectionId: string | null) => {
+      const projectId = await createProject({
+        name: deriveProjectNameFromFolder(workingFolder),
+        workingFolder,
+        sshConnectionId: sshConnectionId ?? undefined
+      })
+      setActiveProject(projectId)
+      useUIStore.getState().navigateToProject()
+      toast.success(t('sidebar_toast.projectCreated', { defaultValue: '项目已创建' }))
+    },
+    [createProject, setActiveProject, t]
+  )
 
   const handleCreateSession = useCallback(() => {
     const projectId = scopedProjectId ?? activeProject?.id ?? null
@@ -963,7 +984,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                 {project.name}
                               </span>
                               {project.sshConnectionId ? (
-                                <Badge variant="secondary" className="h-4 px-1 text-[9px] leading-none">
+                                <Badge
+                                  variant="secondary"
+                                  className="h-4 px-1 text-[9px] leading-none"
+                                >
                                   SSH
                                 </Badge>
                               ) : null}
@@ -1005,7 +1029,12 @@ export function WorkspaceSidebar(): React.JSX.Element {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onSelect={() =>
-                                  deferDropdownAction(() => setFolderPickerProjectId(project.id))
+                                  deferDropdownAction(() =>
+                                    setFolderPickerTarget({
+                                      type: 'project',
+                                      projectId: project.id
+                                    })
+                                  )
                                 }
                               >
                                 <FolderInput className="size-4" />
@@ -1092,7 +1121,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                 <Settings className="size-4 shrink-0" />
                 <span className="truncate">{t('sidebar.systemSettings')}</span>
               </span>
-              <span className="shrink-0 text-[11px] text-muted-foreground/70">v{packageJson.version}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground/70">
+                v{packageJson.version}
+              </span>
             </Button>
           </div>
         </div>
@@ -1135,13 +1166,17 @@ export function WorkspaceSidebar(): React.JSX.Element {
       </Dialog>
 
       <WorkingFolderSelectorDialog
-        open={!!folderPickerProjectId}
+        open={!!folderPickerTarget}
         onOpenChange={(open) => {
-          if (!open) setFolderPickerProjectId(null)
+          if (!open) setFolderPickerTarget(null)
         }}
         workingFolder={folderPickerProject?.workingFolder}
         sshConnectionId={folderPickerProject?.sshConnectionId}
-        onSelectLocalFolder={(folderPath) => {
+        onSelectLocalFolder={async (folderPath) => {
+          if (folderPickerTarget?.type === 'create') {
+            await handleCreateProjectWithDirectory(folderPath, null)
+            return
+          }
           if (!folderPickerProjectId) return
           updateProjectDirectory(folderPickerProjectId, {
             workingFolder: folderPath,
@@ -1153,7 +1188,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
             })
           )
         }}
-        onSelectSshFolder={(folderPath, connectionId) => {
+        onSelectSshFolder={async (folderPath, connectionId) => {
+          if (folderPickerTarget?.type === 'create') {
+            await handleCreateProjectWithDirectory(folderPath, connectionId)
+            return
+          }
           if (!folderPickerProjectId) return
           updateProjectDirectory(folderPickerProjectId, {
             workingFolder: folderPath,

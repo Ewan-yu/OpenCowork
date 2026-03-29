@@ -60,6 +60,7 @@
     "failedParse": "Failed to parse JSON",
     "imported": "Imported {{count}} session(s)",
     "allDeleted": "All sessions deleted",
+    "projectCreated": "Project created",
     "projectWorkingFolderUpdated": "Project working folder updated"
   },
   "topbar": {

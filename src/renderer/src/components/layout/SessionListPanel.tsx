@@ -57,7 +57,10 @@ import {
 import { toast } from 'sonner'
 import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
 import type { ProviderType } from '@renderer/lib/api/types'
-import { useProviderStore } from '@renderer/stores/provider-store'
+import {
+  isProviderAvailableForModelSelection,
+  useProviderStore
+} from '@renderer/stores/provider-store'
 import { ModelIcon } from '@renderer/components/settings/provider-icons'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -71,6 +74,7 @@ import {
 } from '@renderer/hooks/use-chat-actions'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 import { cn } from '@renderer/lib/utils'
+import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import { clampLeftSidebarWidth, LEFT_SIDEBAR_DEFAULT_WIDTH } from './right-panel-defs'
 
 const modeIcons: Record<SessionMode, React.ReactNode> = {
@@ -98,9 +102,13 @@ interface ProjectListItem {
   id: string
   name: string
   updatedAt: number
+  workingFolder?: string | null
+  sshConnectionId?: string | null
   pluginId?: string
   pinned?: boolean
 }
+
+type FolderPickerTarget = { type: 'create' } | { type: 'project'; projectId: string }
 
 interface VisibleProjectGroup {
   project: ProjectListItem
@@ -115,6 +123,13 @@ const WEEK_MS = 7 * DAY_MS
 const TWO_WEEKS_MS = 14 * DAY_MS
 const MONTH_MS = 30 * DAY_MS
 
+function deriveProjectNameFromFolder(folderPath?: string | null): string {
+  const normalized = folderPath?.trim().replace(/[\\/]+$/, '')
+  if (!normalized) return 'New Project'
+  const parts = normalized.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] || 'New Project'
+}
+
 export function SessionListPanel(): React.JSX.Element {
   const { t } = useTranslation('layout')
   const projectsRaw = useChatStore((s) => s.projects)
@@ -124,6 +139,8 @@ export function SessionListPanel(): React.JSX.Element {
         id: project.id,
         name: project.name,
         updatedAt: project.updatedAt,
+        workingFolder: project.workingFolder,
+        sshConnectionId: project.sshConnectionId,
         pluginId: project.pluginId,
         pinned: project.pinned
       })),
@@ -213,15 +230,11 @@ export function SessionListPanel(): React.JSX.Element {
     id: string
     currentName: string
   } | null>(null)
-  const [directoryDialog, setDirectoryDialog] = useState<{
-    projectId: string
-    projectName: string
-  } | null>(null)
+  const [folderPickerTarget, setFolderPickerTarget] = useState<FolderPickerTarget | null>(null)
   const [projectModelDialog, setProjectModelDialog] = useState<{
     projectId: string
     projectName: string
   } | null>(null)
-  const [directoryValue, setDirectoryValue] = useState('')
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
@@ -381,6 +394,11 @@ export function SessionListPanel(): React.JSX.Element {
     activeTeamSessionId,
     pendingQueueSignature
   ])
+  const folderPickerProjectId =
+    folderPickerTarget?.type === 'project' ? folderPickerTarget.projectId : null
+  const folderPickerProject = folderPickerProjectId
+    ? projects.find((project) => project.id === folderPickerProjectId)
+    : undefined
 
   const confirmDelete = useCallback(() => {
     if (!deleteTarget) return
@@ -409,12 +427,23 @@ export function SessionListPanel(): React.JSX.Element {
     useUIStore.getState().navigateToHome()
   }
 
-  const handleCreateProject = async (): Promise<void> => {
-    const id = await createProject({ name: 'New Project' })
-    setActiveProject(id)
-    useUIStore.getState().navigateToHome()
-    toast.success(t('sidebar_toast.projectCreated', { defaultValue: 'Project created' }))
-  }
+  const handleCreateProject = useCallback((): void => {
+    setFolderPickerTarget({ type: 'create' })
+  }, [])
+
+  const handleCreateProjectWithDirectory = useCallback(
+    async (workingFolder: string, sshConnectionId: string | null): Promise<void> => {
+      const id = await createProject({
+        name: deriveProjectNameFromFolder(workingFolder),
+        workingFolder,
+        sshConnectionId: sshConnectionId ?? undefined
+      })
+      setActiveProject(id)
+      useUIStore.getState().navigateToHome()
+      toast.success(t('sidebar_toast.projectCreated', { defaultValue: 'Project created' }))
+    },
+    [createProject, setActiveProject, t]
+  )
 
   const toggleProjectCollapsed = useCallback((projectId: string): void => {
     setCollapsedProjectIds((prev) => {
@@ -484,42 +513,18 @@ export function SessionListPanel(): React.JSX.Element {
     []
   )
 
-  const handleEditProjectDirectory = useCallback((projectId: string, projectName: string): void => {
-    const project = useChatStore.getState().projects.find((item) => item.id === projectId)
-    setDirectoryDialog({
-      projectId,
-      projectName
-    })
-    setDirectoryValue(project?.workingFolder ?? '')
+  const handleEditProjectDirectory = useCallback((projectId: string): void => {
+    setFolderPickerTarget({ type: 'project', projectId })
   }, [])
 
   const handleEditProjectModel = useCallback((projectId: string, projectName: string): void => {
     setProjectModelDialog({ projectId, projectName })
   }, [])
 
-  const confirmProjectDirectory = useCallback((): void => {
-    if (!directoryDialog) return
-    updateProjectDirectory(directoryDialog.projectId, {
-      workingFolder: directoryValue.trim() || null,
-      sshConnectionId: null
-    })
-    setDirectoryDialog(null)
-    toast.success('项目工作目录已更新')
-  }, [directoryDialog, directoryValue, updateProjectDirectory])
-
-  const selectProjectDirectory = useCallback(async (): Promise<void> => {
-    const result = (await window.electron.ipcRenderer.invoke('fs:select-folder')) as {
-      canceled?: boolean
-      path?: string
-    }
-    if (result.canceled) return
-    setDirectoryValue(result.path ?? '')
-  }, [])
-
   const chatProviderGroups = useMemo(
     () =>
       providers
-        .filter((provider) => provider.enabled)
+        .filter((provider) => isProviderAvailableForModelSelection(provider))
         .map((provider) => ({
           provider,
           models: provider.models.filter(
@@ -1091,7 +1096,7 @@ export function SessionListPanel(): React.JSX.Element {
             </ContextMenuItem>
             <ContextMenuItem
               disabled={!canManageProject}
-              onClick={() => handleEditProjectDirectory(group.project.id, group.project.name)}
+              onClick={() => handleEditProjectDirectory(group.project.id)}
             >
               <FolderOpen className="size-4" />
               修改工作目录
@@ -1203,7 +1208,7 @@ export function SessionListPanel(): React.JSX.Element {
               variant="ghost"
               size="icon"
               className="size-6"
-              onClick={() => void handleCreateProject()}
+              onClick={handleCreateProject}
               title={t('sidebar.newProject', { defaultValue: 'New Project' })}
             >
               <FolderPlus className="size-3.5" />
@@ -1480,49 +1485,46 @@ export function SessionListPanel(): React.JSX.Element {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={!!directoryDialog}
+      <WorkingFolderSelectorDialog
+        open={!!folderPickerTarget}
         onOpenChange={(open) => {
-          if (!open) setDirectoryDialog(null)
+          if (!open) setFolderPickerTarget(null)
         }}
-      >
-        <DialogContent className="sm:max-w-lg p-4">
-          <DialogHeader>
-            <DialogTitle className="text-sm">
-              修改项目工作目录{directoryDialog ? ` · ${directoryDialog.projectName}` : ''}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              value={directoryValue}
-              onChange={(event) => setDirectoryValue(event.target.value)}
-              placeholder="输入本地工作目录，留空表示清空"
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  confirmProjectDirectory()
-                }
-                if (event.key === 'Escape') {
-                  setDirectoryDialog(null)
-                }
-              }}
-            />
-            <div className="flex justify-end">
-              <Button variant="outline" size="sm" onClick={() => void selectProjectDirectory()}>
-                浏览...
-              </Button>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDirectoryDialog(null)}>
-              {t('action.cancel', { ns: 'common' })}
-            </Button>
-            <Button size="sm" onClick={confirmProjectDirectory}>
-              保存
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        workingFolder={folderPickerProject?.workingFolder ?? undefined}
+        sshConnectionId={folderPickerProject?.sshConnectionId ?? null}
+        onSelectLocalFolder={async (folderPath) => {
+          if (folderPickerTarget?.type === 'create') {
+            await handleCreateProjectWithDirectory(folderPath, null)
+            return
+          }
+          if (!folderPickerProjectId) return
+          updateProjectDirectory(folderPickerProjectId, {
+            workingFolder: folderPath,
+            sshConnectionId: null
+          })
+          toast.success(
+            t('sidebar_toast.projectWorkingFolderUpdated', {
+              defaultValue: 'Project working folder updated'
+            })
+          )
+        }}
+        onSelectSshFolder={async (folderPath, connectionId) => {
+          if (folderPickerTarget?.type === 'create') {
+            await handleCreateProjectWithDirectory(folderPath, connectionId)
+            return
+          }
+          if (!folderPickerProjectId) return
+          updateProjectDirectory(folderPickerProjectId, {
+            workingFolder: folderPath,
+            sshConnectionId: connectionId
+          })
+          toast.success(
+            t('sidebar_toast.projectWorkingFolderUpdated', {
+              defaultValue: 'Project working folder updated'
+            })
+          )
+        }}
+      />
 
       <Dialog
         open={!!renameDialog}

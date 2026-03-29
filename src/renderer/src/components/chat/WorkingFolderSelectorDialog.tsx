@@ -127,8 +127,8 @@ export function WorkingFolderSelectorDialog({
       <DialogContent className="p-4 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-sm">
-            {t('input.desktopFolders', {
-              defaultValue: 'Desktop folders'
+            {t('input.selectFolder', {
+              defaultValue: 'Select working folder'
             })}
           </DialogTitle>
         </DialogHeader>

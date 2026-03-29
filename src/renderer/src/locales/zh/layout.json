@@ -60,6 +60,7 @@
     "failedParse": "JSON 解析失败",
     "imported": "已导入 {{count}} 个会话",
     "allDeleted": "所有会话已删除",
+    "projectCreated": "项目已创建",
     "projectWorkingFolderUpdated": "项目工作目录已更新"
   },
   "topbar": {
