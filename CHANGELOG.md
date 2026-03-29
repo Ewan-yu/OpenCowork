@@ -3,6 +3,13 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.7.7] - 2026-03-29
+
+### Changed
+
+- Bumped the app version to `v0.7.7`.
+- Updated the docs homepage release badge from `v0.7.6` to `v0.7.7`.
+
 ## [0.7.6] - 2026-03-29
 
 ### Added
