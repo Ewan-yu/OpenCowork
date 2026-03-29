@@ -109,20 +109,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       outputPrice: 0.56
     },
     {
-      id: 'gemini-3.1-flash-lite-preview',
-      name: 'Gemini 3.1 Flash-Lite Preview',
-      icon: 'gemini',
-      enabled: true,
-      type: 'gemini',
-      contextLength: 1_048_576,
-      maxOutputTokens: 65_536,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      supportsThinking: true,
-      inputPrice: 0,
-      outputPrice: 0
-    },
-    {
       id: 'mimo-v2-flash',
       name: 'Mimo V2 Flash',
       icon: 'mimo',
@@ -902,18 +888,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       supportsFunctionCall: true,
       inputPrice: 2,
       outputPrice: 12
-    },
-    {
-      id: 'gemini-3-flash-preview',
-      name: 'Gemini 3 flash Preview',
-      icon: 'gemini',
-      enabled: true,
-      contextLength: 1_048_576,
-      maxOutputTokens: 65_536,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 0.5,
-      outputPrice: 3
     },
     {
       id: 'gemini-3.1-flash-lite-preview',

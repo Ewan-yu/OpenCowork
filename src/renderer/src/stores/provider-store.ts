@@ -20,11 +20,6 @@ export type { BuiltinProviderPreset }
 
 const DEFAULT_FAST_PROVIDER_BUILTIN_ID = 'routin-ai'
 const DEFAULT_FAST_MODEL_ID = 'doubao-seed-2-0-mini-260215'
-const LEGACY_BUILTIN_DEPRECATED_MODEL_IDS = [
-  'gemini-3.1-flash-lite-preview',
-  'gemini-3-flash-preview'
-]
-
 // --- Helper: create AIProvider from preset ---
 
 function createProviderFromPreset(preset: BuiltinProviderPreset): AIProvider {
@@ -211,7 +206,7 @@ function mergeBuiltinModels(
 ): AIModelConfig[] {
   const existingById = new Map(existingModels.map((model) => [model.id, model]))
   const presetIds = new Set(presetModels.map((model) => model.id))
-  const deprecatedIds = new Set([...LEGACY_BUILTIN_DEPRECATED_MODEL_IDS, ...deprecatedModelIds])
+  const deprecatedIds = new Set([...deprecatedModelIds])
 
   // Keep preset order for builtin models; preserve user's enabled state and capability overrides.
   const capabilityKeys: (keyof AIModelConfig)[] = [
