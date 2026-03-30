@@ -32,6 +32,7 @@ import type { ToolContext } from '@renderer/lib/tools/tool-types'
 
 import { PLAN_MODE_ALLOWED_TOOLS } from '@renderer/lib/tools/plan-tool'
 import { usePlanStore } from '@renderer/stores/plan-store'
+import { useTaskStore } from '@renderer/stores/task-store'
 import { createProvider } from '@renderer/lib/api/provider'
 import { generateSessionTitle } from '@renderer/lib/api/generate-title'
 import type {
@@ -98,6 +99,7 @@ import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
 
 /** Per-session abort controllers — module-level so concurrent sessions don't overwrite each other */
 const sessionAbortControllers = new Map<string, AbortController>()
+const longRunningVerificationPasses = new Map<string, number>()
 
 function extractPluginChatId(externalChatId?: string): string | undefined {
   if (!externalChatId) return undefined
@@ -136,6 +138,104 @@ Treat the following user query as the latest instruction and respond to it direc
 function cloneOptionalImageAttachments(images?: ImageAttachment[]): ImageAttachment[] | undefined {
   const cloned = cloneImageAttachments(images)
   return cloned.length > 0 ? cloned : undefined
+}
+
+function getTaskProgressSnapshot(sessionId: string): string {
+  const tasks = useTaskStore.getState().getTasksBySession(sessionId)
+  const pending = tasks.filter((task) => task.status === 'pending').length
+  const inProgress = tasks.filter((task) => task.status === 'in_progress').length
+  const completed = tasks.filter((task) => task.status === 'completed').length
+  return `${tasks.length}:${pending}:${inProgress}:${completed}`
+}
+
+function extractMessagePlainText(message?: UnifiedMessage): string {
+  if (!message) return ''
+  if (typeof message.content === 'string') return message.content
+  if (!Array.isArray(message.content)) return ''
+  return message.content
+    .filter((block) => block.type === 'text')
+    .map((block) => (block.type === 'text' ? block.text : ''))
+    .join('\n')
+    .trim()
+}
+
+const LONG_RUNNING_COMPLETION_RE =
+  /(全部(?:任务|工作|事项).{0,12}(?:完成|已完成)|任务(?:已|已经)?全部完成|all tasks? (?:are )?(?:complete|completed)|work is complete|completed successfully|finished successfully|no further action(?:s)? needed)/i
+
+function assistantLooksComplete(message?: UnifiedMessage): boolean {
+  return LONG_RUNNING_COMPLETION_RE.test(extractMessagePlainText(message))
+}
+
+function hasLiveToolOrBackgroundWork(sessionId: string): boolean {
+  const agentState = useAgentStore.getState()
+  const toolCalls = [...agentState.pendingToolCalls, ...agentState.executedToolCalls]
+  const hasToolStillRunning = toolCalls.some(
+    (toolCall) =>
+      toolCall.status === 'streaming' ||
+      toolCall.status === 'pending_approval' ||
+      toolCall.status === 'running'
+  )
+  if (hasToolStillRunning) return true
+
+  return Object.values(agentState.backgroundProcesses).some(
+    (process) => process.sessionId === sessionId && process.status === 'running'
+  )
+}
+
+function shouldAutoContinueLongRunningRun(options: {
+  sessionId: string
+  assistantMessageId: string
+  loopEndReason: 'completed' | 'max_iterations' | 'aborted' | 'error' | null
+  runUsedTools: boolean
+  preRunTaskSnapshot: string
+  verificationPassIndex: number
+}): boolean {
+  const {
+    sessionId,
+    assistantMessageId,
+    loopEndReason,
+    runUsedTools,
+    preRunTaskSnapshot,
+    verificationPassIndex
+  } = options
+
+  if (loopEndReason === 'aborted' || loopEndReason === 'error') return false
+  if (hasPendingSessionMessages(sessionId) || isPendingSessionDispatchPaused(sessionId)) return false
+  if (useAgentStore.getState().runningSessions[sessionId] === 'running') return false
+
+  const session = useChatStore.getState().sessions.find((item) => item.id === sessionId)
+  if (!session?.longRunningMode) return false
+
+  const messages = useChatStore.getState().getSessionMessages(sessionId)
+  const assistantMessage = messages.find((message) => message.id === assistantMessageId)
+  const taskSnapshotChanged = getTaskProgressSnapshot(sessionId) !== preRunTaskSnapshot
+  const tasks = useTaskStore.getState().getTasksBySession(sessionId)
+  const hasUnfinishedTasks = tasks.some(
+    (task) => task.status === 'pending' || task.status === 'in_progress'
+  )
+  const tailToolExecution = getTailToolExecutionState(messages)
+  const hasPendingToolExecution = Boolean(
+    tailToolExecution?.toolUseBlocks.some((toolUse) => !tailToolExecution.toolResultMap.has(toolUse.id))
+  )
+  const completeBySelfReport = assistantLooksComplete(assistantMessage)
+
+  if (hasUnfinishedTasks || hasPendingToolExecution || hasLiveToolOrBackgroundWork(sessionId)) {
+    return true
+  }
+
+  if (loopEndReason !== 'completed') {
+    return true
+  }
+
+  if (runUsedTools || taskSnapshotChanged) {
+    return verificationPassIndex < 4
+  }
+
+  if (!completeBySelfReport) {
+    return verificationPassIndex < 2
+  }
+
+  return false
 }
 
 function resolveProviderDefaultModelId(providerId: string): string | null {
@@ -463,6 +563,17 @@ interface ResolvedUserCommand {
   command: SystemCommandSnapshot | null
   userText: string
   titleInput: string
+}
+
+function canAutoGenerateSessionTitle(currentTitle: string | undefined): boolean {
+  const title = (currentTitle ?? '').trim()
+  return (
+    title.length === 0 ||
+    title === 'New Conversation' ||
+    title === 'New Chat' ||
+    /^oc_/i.test(title) ||
+    /^Plugin\s+/i.test(title)
+  )
 }
 
 async function resolveUserCommand(
@@ -1031,7 +1142,8 @@ export function useChatActions(): {
     source?: MessageSource,
     targetSessionId?: string,
     commandOverride?: SystemCommandSnapshot | null,
-    reuseAssistantMessageId?: string
+    reuseAssistantMessageId?: string,
+    options?: { longRunningMode?: boolean }
   ) => Promise<void>
   stopStreaming: () => void
   continueLastToolExecution: () => Promise<void>
@@ -1047,7 +1159,8 @@ export function useChatActions(): {
       source?: MessageSource,
       targetSessionId?: string,
       commandOverride?: SystemCommandSnapshot | null,
-      reuseAssistantMessageId?: string
+      reuseAssistantMessageId?: string,
+      options?: { longRunningMode?: boolean }
     ): Promise<void> => {
       // Reset auto-trigger counter and unpause when user manually sends a message
       if (source !== 'team') {
@@ -1080,7 +1193,10 @@ export function useChatActions(): {
       // Ensure we have an active session
       let sessionId = targetSessionId ?? chatStore.activeSessionId
       if (!sessionId) {
-        sessionId = chatStore.createSession(uiStore.mode)
+        sessionId = chatStore.createSession(uiStore.mode, undefined, options)
+      }
+      if (source !== 'continue') {
+        longRunningVerificationPasses.delete(sessionId)
       }
       await chatStore.loadSessionMessages(sessionId)
 
@@ -1308,12 +1424,14 @@ export function useChatActions(): {
 
       // Auto-title: fire-and-forget AI title + icon generation for the first message (skip for team notifications)
       const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-      if (shouldAppendUserMessage && session && session.title === 'New Conversation') {
+      if (shouldAppendUserMessage && session && canAutoGenerateSessionTitle(session.title)) {
         const capturedSessionId = sessionId
         generateSessionTitle(resolvedCommand.titleInput)
           .then((result) => {
             if (result) {
               const store = useChatStore.getState()
+              const latestSession = store.sessions.find((item) => item.id === capturedSessionId)
+              if (!latestSession || !canAutoGenerateSessionTitle(latestSession.title)) return
               store.updateSessionTitle(capturedSessionId, result.title)
               store.updateSessionIcon(capturedSessionId, result.icon)
             }
@@ -1513,6 +1631,18 @@ export function useChatActions(): {
             '- Keep the user in the loop for destructive actions, purchases, logins, or other high-impact steps.'
           ].join('\n')
           userPrompt = userPrompt ? `${userPrompt}\n${desktopPluginSection}` : desktopPluginSection
+        }
+
+        if (session?.longRunningMode) {
+          const longRunningSection = [
+            '\n## Long-Running Mode',
+            '- Stay autonomous until the user request is actually finished. Do not stop just because you made partial progress.',
+            '- Treat AskUserQuestion as self-decision: if a choice is needed, decide yourself from context. Prefer recommended options, otherwise choose the safest sensible default and continue.',
+            '- Do not claim completion until all real tasks are done: no pending/in-progress tasks, no unfinished tool work, and no meaningful next action remains.',
+            '- If you complete work after using tools or updating tasks, perform one more verification turn before ending and explicitly state that all tasks are complete.',
+            '- If context becomes crowded, preserve a concise handoff summary and continue from that summary rather than ending early.'
+          ].join('\n')
+          userPrompt = userPrompt ? `${userPrompt}\n${longRunningSection}` : longRunningSection
         }
 
         // Channel session context: inject reply instructions when this session belongs to a channel
@@ -1721,6 +1851,10 @@ export function useChatActions(): {
         }
 
         let streamDeltaBuffer: StreamDeltaBuffer | null = null
+        const preRunTaskSnapshot = getTaskProgressSnapshot(sessionId)
+        const verificationPassIndex = longRunningVerificationPasses.get(sessionId) ?? 0
+        let runUsedTools = false
+        let shouldAutoContinueLongRunning = false
 
         // Extract channel context from session so tools like CronAdd can auto-inject routing
         const sessionChannelId = session?.pluginId
@@ -2050,6 +2184,7 @@ export function useChatActions(): {
               }
 
               case 'tool_use_generated':
+                runUsedTools = true
                 // Args fully streamed — update the existing block's input (final)
                 streamDeltaBuffer.setToolInput(event.toolUseBlock.id, event.toolUseBlock.input)
                 streamDeltaBuffer.flushNow()
@@ -2061,6 +2196,7 @@ export function useChatActions(): {
                 break
 
               case 'tool_call_start':
+                runUsedTools = true
                 useAgentStore.getState().addToolCall(event.toolCall)
                 break
 
@@ -2174,6 +2310,14 @@ export function useChatActions(): {
                 useChatStore
                   .getState()
                   .updateMessage(sessionId!, assistantMsgId, { usage: { ...accumulatedUsage } })
+                shouldAutoContinueLongRunning = shouldAutoContinueLongRunningRun({
+                  sessionId,
+                  assistantMessageId: assistantMsgId,
+                  loopEndReason: event.reason,
+                  runUsedTools,
+                  preRunTaskSnapshot,
+                  verificationPassIndex
+                })
                 break
               }
 
@@ -2252,17 +2396,35 @@ export function useChatActions(): {
           )
           agentStore.setRunning(hasOtherRunning)
           dispatchNextQueuedMessage(sessionId)
-          // Notify when agent finishes and window is not focused
-          if (!document.hasFocus() && Notification.permission === 'granted') {
-            new Notification('OpenCowork', { body: 'Agent finished working', silent: true })
-          }
 
-          // If there's an active team, set up the lead message listener
-          // and drain any messages that arrived while the loop was running.
-          if (useTeamStore.getState().activeTeam) {
-            ensureTeamLeadListener()
-            // Schedule a debounced drain to batch reports that arrive close together
-            scheduleDrain()
+          if (shouldAutoContinueLongRunning) {
+            longRunningVerificationPasses.set(sessionId, verificationPassIndex + 1)
+            queueMicrotask(() => {
+              void sendMessage(
+                '',
+                undefined,
+                'continue',
+                sessionId,
+                null,
+                assistantMsgId,
+                { longRunningMode: true }
+              )
+            })
+          } else {
+            longRunningVerificationPasses.delete(sessionId)
+
+            // Notify when agent finishes and window is not focused
+            if (!document.hasFocus() && Notification.permission === 'granted') {
+              new Notification('OpenCowork', { body: 'Agent finished working', silent: true })
+            }
+
+            // If there's an active team, set up the lead message listener
+            // and drain any messages that arrived while the loop was running.
+            if (useTeamStore.getState().activeTeam) {
+              ensureTeamLeadListener()
+              // Schedule a debounced drain to batch reports that arrive close together
+              scheduleDrain()
+            }
           }
         }
       }

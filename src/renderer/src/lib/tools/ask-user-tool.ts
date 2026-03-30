@@ -1,5 +1,6 @@
 import { toolRegistry } from '../agent/tool-registry'
 import type { ToolDefinition } from '../api/types'
+import { useChatStore } from '@renderer/stores/chat-store'
 import { encodeToolError } from './tool-result-format'
 import type { ToolHandler } from './tool-types'
 
@@ -18,6 +19,33 @@ export interface AskUserQuestionItem {
 
 export interface AskUserAnswers {
   [questionIndex: string]: string | string[]
+}
+
+const RECOMMENDED_OPTION_RE = /(?:\(|（)\s*(recommended|推荐)\s*(?:\)|）)/i
+
+function isRecommendedOptionLabel(label: string): boolean {
+  return RECOMMENDED_OPTION_RE.test(label)
+}
+
+function chooseAutonomousAnswers(questions: AskUserQuestionItem[]): AskUserAnswers {
+  const answers: AskUserAnswers = {}
+
+  for (let index = 0; index < questions.length; index += 1) {
+    const item = questions[index]
+    const options = item.options ?? []
+    const recommended = options.filter((option) => isRecommendedOptionLabel(option.label))
+    const preferred = recommended.length > 0 ? recommended : options.slice(0, 1)
+
+    if (preferred.length > 0) {
+      const labels = preferred.map((option) => option.label)
+      answers[String(index)] = item.multiSelect ? labels : labels[0]
+      continue
+    }
+
+    answers[String(index)] = '由 AI 在长时间运行模式下基于当前上下文自行决定。'
+  }
+
+  return answers
 }
 
 // --- Resolver map (module-level, non-serializable) ---
@@ -118,6 +146,24 @@ const askUserToolExecute: ToolHandler['execute'] = async (input, ctx) => {
   }
   if (questions.length > 4) {
     return encodeToolError('Maximum 4 questions allowed')
+  }
+
+  const session = ctx.sessionId
+    ? useChatStore.getState().sessions.find((item) => item.id === ctx.sessionId)
+    : undefined
+  const shouldAutoAnswer = Boolean(session?.longRunningMode)
+
+  if (shouldAutoAnswer) {
+    const answers = chooseAutonomousAnswers(questions)
+    const parts: string[] = []
+    for (let i = 0; i < questions.length; i += 1) {
+      const q = questions[i]
+      const a = answers[String(i)]
+      if (a === undefined) continue
+      const answerText = Array.isArray(a) ? a.join(', ') : a
+      parts.push(`Q: ${q.question}\nA: ${answerText}`)
+    }
+    return `User answered:\n\n${parts.join('\n\n')}\n\n[Auto-decided by long-running mode]`
   }
 
   if (ctx.pluginId) {

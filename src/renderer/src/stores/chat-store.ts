@@ -74,6 +74,7 @@ export interface Session {
   modelId?: string
   /** In-memory prompt snapshot reused within the current app session */
   promptSnapshot?: SessionPromptSnapshot
+  longRunningMode?: boolean
 }
 
 // --- DB persistence helpers (fire-and-forget) ---
@@ -92,7 +93,8 @@ function dbCreateSession(s: Session): void {
       sshConnectionId: s.sshConnectionId,
       pinned: s.pinned,
       providerId: s.providerId,
-      modelId: s.modelId
+      modelId: s.modelId,
+      longRunningMode: s.longRunningMode
     })
     .catch(() => {})
 }
@@ -232,7 +234,11 @@ interface ChatStore {
   ) => void
 
   // Session CRUD
-  createSession: (mode: SessionMode, projectId?: string | null) => string
+  createSession: (
+    mode: SessionMode,
+    projectId?: string | null,
+    options?: { longRunningMode?: boolean }
+  ) => string
   deleteSession: (id: string) => void
   setActiveSession: (id: string | null) => void
   updateSessionTitle: (id: string, title: string) => void
@@ -242,6 +248,7 @@ interface ChatStore {
   setSshConnectionId: (sessionId: string, connectionId: string | null) => void
   updateSessionModel: (sessionId: string, providerId: string, modelId: string) => void
   clearSessionModelBinding: (sessionId: string) => void
+  setSessionLongRunningMode: (sessionId: string, enabled: boolean) => void
   setSessionPromptSnapshot: (sessionId: string, snapshot: SessionPromptSnapshot) => void
   clearSessionPromptSnapshot: (sessionId: string) => void
   clearSessionMessages: (sessionId: string) => void
@@ -318,6 +325,7 @@ interface SessionRow {
   external_chat_id?: string | null
   provider_id?: string | null
   model_id?: string | null
+  long_running_mode?: number | null
 }
 
 interface MessageRow {
@@ -364,7 +372,8 @@ function rowToSession(row: SessionRow, messages: UnifiedMessage[] = []): Session
     pluginId: row.plugin_id ?? undefined,
     externalChatId: row.external_chat_id ?? undefined,
     providerId: row.provider_id ?? undefined,
-    modelId: row.model_id ?? undefined
+    modelId: row.model_id ?? undefined,
+    longRunningMode: row.long_running_mode === 1
   }
 }
 
@@ -915,7 +924,7 @@ export const useChatStore = create<ChatStore>()(
       }
     },
 
-    createSession: (mode, projectId) => {
+    createSession: (mode, projectId, options) => {
       const id = nanoid()
       const now = Date.now()
       const { activeProviderId, activeModelId } = useProviderStore.getState()
@@ -960,7 +969,8 @@ export const useChatStore = create<ChatStore>()(
         workingFolder: targetProject?.workingFolder,
         sshConnectionId: targetProject?.sshConnectionId,
         providerId: sessionProviderId,
-        modelId: sessionModelId
+        modelId: sessionModelId,
+        longRunningMode: options?.longRunningMode ?? false
       }
       set((state) => {
         state.sessions.push(newSession)
@@ -1183,6 +1193,19 @@ export const useChatStore = create<ChatStore>()(
       dbUpdateSession(sessionId, { providerId: null, modelId: null, updatedAt: now })
     },
 
+    setSessionLongRunningMode: (sessionId, enabled) => {
+      const now = Date.now()
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (session) {
+          session.longRunningMode = enabled
+          delete session.promptSnapshot
+          session.updatedAt = now
+        }
+      })
+      dbUpdateSession(sessionId, { longRunningMode: enabled, updatedAt: now })
+    },
+
     setSessionPromptSnapshot: (sessionId, snapshot) => {
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
@@ -1341,7 +1364,8 @@ export const useChatStore = create<ChatStore>()(
         workingFolder: source.workingFolder,
         sshConnectionId: source.sshConnectionId,
         providerId: source.providerId,
-        modelId: source.modelId
+        modelId: source.modelId,
+        longRunningMode: source.longRunningMode ?? false
       }
       set((state) => {
         state.sessions.push(newSession)

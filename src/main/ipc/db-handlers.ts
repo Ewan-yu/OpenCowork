@@ -101,6 +101,7 @@ export function registerDbHandlers(): void {
         pluginId?: string
         providerId?: string
         modelId?: string
+        longRunningMode?: boolean
       }
     ) => {
       let projectId = session.projectId
@@ -145,6 +146,7 @@ export function registerDbHandlers(): void {
           workingFolder: string | null
           sshConnectionId: string | null
           pinned: boolean
+          longRunningMode: boolean
         }>
       }
     ) => {

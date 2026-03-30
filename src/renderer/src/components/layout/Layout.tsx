@@ -1076,7 +1076,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                             onDeleteMessage={deleteMessage}
                           />
                           <InputArea
-                            onSend={sendMessage}
+                            onSend={(text, images) => void sendMessage(text, images)}
                             onStop={stopStreaming}
                             onSelectFolder={mode !== 'chat' ? handleOpenFolderDialog : undefined}
                             workingFolder={activeWorkingFolder}

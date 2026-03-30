@@ -87,9 +87,13 @@ export function ChatHomePage(): React.JSX.Element {
   const autoSelection = activeSessionId
     ? (autoModelSelectionsBySession[activeSessionId] ?? null)
     : null
-  const handleSend = (text: string, images?: ImageAttachment[]): void => {
+  const handleSend = (
+    text: string,
+    images?: ImageAttachment[],
+    options?: { longRunningMode?: boolean }
+  ): void => {
     const chatStore = useChatStore.getState()
-    const sessionId = chatStore.createSession(mode, activeProject?.id ?? undefined)
+    const sessionId = chatStore.createSession(mode, activeProject?.id ?? undefined, options)
     chatStore.setActiveSession(sessionId)
     useUIStore.getState().navigateToSession()
     void sendMessage(text, images)

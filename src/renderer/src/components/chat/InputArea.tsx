@@ -297,7 +297,11 @@ function summarizeQueuedMessage(text: string): string {
 }
 
 interface InputAreaProps {
-  onSend: (text: string, images?: ImageAttachment[]) => void
+  onSend: (
+    text: string,
+    images?: ImageAttachment[],
+    options?: { longRunningMode?: boolean }
+  ) => void
   onStop?: () => void
   onSelectFolder?: () => void
   isStreaming?: boolean
@@ -546,14 +550,24 @@ export function InputArea({
   const openFilePreview = useUIStore((s) => s.openFilePreview)
   const mode = useUIStore((s) => s.mode)
   const activeProjectId = useChatStore((s) => s.activeProjectId)
-  const { activeSessionId, hasMessages, clearSessionMessages, sessionMessages } = useChatStore(
+  const [homeLongRunningMode, setHomeLongRunningMode] = useLocalState(false)
+  const {
+    activeSessionId,
+    hasMessages,
+    clearSessionMessages,
+    sessionMessages,
+    longRunningMode,
+    setSessionLongRunningMode
+  } = useChatStore(
     useShallow((s) => {
       const activeSession = s.sessions.find((sess) => sess.id === s.activeSessionId)
       return {
         activeSessionId: s.activeSessionId,
         hasMessages: (activeSession?.messageCount ?? 0) > 0,
         clearSessionMessages: s.clearSessionMessages,
-        sessionMessages: activeSession?.messages ?? EMPTY_SESSION_MESSAGES
+        sessionMessages: activeSession?.messages ?? EMPTY_SESSION_MESSAGES,
+        longRunningMode: activeSession?.longRunningMode ?? false,
+        setSessionLongRunningMode: s.setSessionLongRunningMode
       }
     })
   )
@@ -1272,6 +1286,16 @@ export function InputArea({
     )
   }, [])
 
+  const effectiveLongRunningMode = activeSessionId ? longRunningMode : homeLongRunningMode
+
+  const handleToggleLongRunningMode = React.useCallback(() => {
+    if (activeSessionId) {
+      setSessionLongRunningMode(activeSessionId, !longRunningMode)
+      return
+    }
+    setHomeLongRunningMode((current) => !current)
+  }, [activeSessionId, longRunningMode, setHomeLongRunningMode, setSessionLongRunningMode])
+
   const handleSend = (): void => {
     const serialized = finalSerializedText.trim()
     if (!serialized && attachedImages.length === 0) return
@@ -1283,7 +1307,9 @@ export function InputArea({
         ? `[Skill: ${selectedSkill}]\n${serialized}`
         : serialized
 
-    onSend(message, attachedImages.length > 0 ? attachedImages : undefined)
+    onSend(message, attachedImages.length > 0 ? attachedImages : undefined, {
+      longRunningMode: effectiveLongRunningMode
+    })
 
     setDocumentNodes([])
     setSelectedFiles([])
@@ -2333,6 +2359,33 @@ export function InputArea({
                   />
                   <ActiveMcpsBadge projectId={activeProjectId} />
                 </>
+              )}
+
+              {mode !== 'chat' && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        'size-8 rounded-lg transition-colors',
+                        effectiveLongRunningMode
+                          ? 'bg-primary/12 text-primary hover:bg-primary/18'
+                          : 'text-muted-foreground hover:text-foreground',
+                        isHomeComposer && 'rounded-full hover:bg-white/5'
+                      )}
+                      onClick={handleToggleLongRunningMode}
+                      disabled={disabled || isStreaming}
+                    >
+                      <Sparkles className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {effectiveLongRunningMode
+                      ? t('input.longRunningModeOn', { defaultValue: '长时间运行模式：开启' })
+                      : t('input.longRunningModeOff', { defaultValue: '长时间运行模式：关闭' })}
+                  </TooltipContent>
+                </Tooltip>
               )}
 
               {/* Image upload button */}
