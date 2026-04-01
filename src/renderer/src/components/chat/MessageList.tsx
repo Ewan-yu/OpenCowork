@@ -158,9 +158,10 @@ const AUTO_SCROLL_BOTTOM_THRESHOLD = 80
 const STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD = 150
 const LOAD_MORE_ROW_KEY = '__load_more__'
 const TAIL_STATIC_MESSAGE_COUNT = 4
-const INITIAL_SCROLL_SETTLE_FRAMES = 18
-const USER_SEND_SCROLL_SETTLE_FRAMES = 12
-const FOLLOW_BOTTOM_SETTLE_FRAMES = 3
+const INITIAL_SCROLL_SETTLE_FRAMES = 6
+const USER_SEND_SCROLL_SETTLE_FRAMES = 4
+const FOLLOW_BOTTOM_SETTLE_FRAMES = 1
+const BOTTOM_SCROLL_CORRECTION_EPSILON = 2
 
 function isToolResultOnlyUserMessage(message: UnifiedMessage): boolean {
   return (
@@ -230,6 +231,10 @@ function getMessageTailSignal(message: UnifiedMessage | undefined): string {
   }
 
   return `a:${message.content.length}:${JSON.stringify(message.content[message.content.length - 1] ?? null)}`
+}
+
+function getDistanceToBottom(ref: VListHandle): number {
+  return Math.max(0, ref.scrollSize - ref.scrollOffset - ref.viewportSize)
 }
 
 const VirtualMessageRow = React.memo(function VirtualMessageRow({
@@ -409,7 +414,7 @@ export function MessageList({
     const threshold = streamingMessageId
       ? STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD
       : AUTO_SCROLL_BOTTOM_THRESHOLD
-    const nextAtBottom = ref.scrollSize - ref.scrollOffset - ref.viewportSize <= threshold
+    const nextAtBottom = getDistanceToBottom(ref) <= threshold
     shouldStickToBottomRef.current = nextAtBottom
     setIsAtBottom((prev) => (prev === nextAtBottom ? prev : nextAtBottom))
   }, [streamingMessageId])
@@ -433,12 +438,23 @@ export function MessageList({
 
       const run = (): void => {
         scheduledScrollFrameRef.current = null
+        const ref = listRef.current
+        if (!ref) return
         if (!force && !shouldStickToBottomRef.current) return
 
-        scrollToBottomImmediate(behavior)
+        if (force || getDistanceToBottom(ref) > BOTTOM_SCROLL_CORRECTION_EPSILON) {
+          scrollToBottomImmediate(behavior)
+        }
         framesLeft -= 1
 
-        if (framesLeft > 0) {
+        const nextRef = listRef.current
+        const needsAnotherFrame =
+          framesLeft > 0 &&
+          !!nextRef &&
+          getDistanceToBottom(nextRef) > BOTTOM_SCROLL_CORRECTION_EPSILON &&
+          (force || shouldStickToBottomRef.current)
+
+        if (needsAnotherFrame) {
           scheduledScrollFrameRef.current = window.requestAnimationFrame(run)
           return
         }
@@ -521,7 +537,7 @@ export function MessageList({
   React.useEffect(() => {
     if (!shouldStickToBottomRef.current) return
     requestScrollToBottom({ maxFrames: FOLLOW_BOTTOM_SETTLE_FRAMES })
-  }, [messageCount, requestScrollToBottom, streamingMessageId, virtualRowKeys.length])
+  }, [requestScrollToBottom, virtualRowKeys.length])
 
   React.useEffect(() => {
     if (!streamingMessageId || !shouldStickToBottomRef.current) return
