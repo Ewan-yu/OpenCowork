@@ -3,6 +3,22 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.7.9] - 2026-03-30
+
+### Added
+
+- Added an OpenCode migration workflow in Settings with preview, conflict handling, backups, and selective import for providers, model selections, commands, agents, MCP servers, and instructions.
+
+### Changed
+
+- Improved chat and sub-agent runtime handling with better persisted execution history, richer detail rendering, clearer usage/debug traces, and more resilient provider request bookkeeping.
+- Hardened main-process IPC delivery and background event forwarding across shell, SSH, cron, API proxy, and Weixin integrations to better tolerate disposed windows and oversized live output.
+- Updated the docs homepage release badge from `v0.7.8` to `v0.7.9`.
+
+### Fixed
+
+- Reduced updater failures on unsupported ad-hoc signed macOS builds and ignored transient update errors more safely during install checks.
+
 ## [0.7.8] - 2026-03-30
 
 ### Added
