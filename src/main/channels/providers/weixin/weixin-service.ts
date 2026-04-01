@@ -22,6 +22,8 @@ const VOICE_ITEM = 3
 const FILE_ITEM = 4
 const VIDEO_ITEM = 5
 const DEFAULT_POLL_DELAY_MS = 35000
+/** Min interval between identical session-expiry warnings (avoid log spam on success/failure flaps). */
+const SESSION_EXPIRY_LOG_INTERVAL_MS = 5 * 60 * 1000
 
 function extractContent(items?: WeixinMessageItem[]): {
   content: string
@@ -72,6 +74,9 @@ export class WeixinService extends BasePluginService {
   private contextTokens = new Map<string, string>()
   private messageReplyMeta = new Map<string, { userId: string; contextToken: string }>()
   private hadPollingIssue = false
+  /** Consecutive recoverable session timeouts — used for exponential backoff */
+  private sessionTimeoutStreak = 0
+  private lastSessionExpiryLogAt = 0
 
   protected async resolveWsUrl(): Promise<string | null> {
     return null
@@ -219,6 +224,8 @@ export class WeixinService extends BasePluginService {
           })
         }
 
+        this.sessionTimeoutStreak = 0
+
         for (const msg of response.msgs || []) {
           void this.handleIncomingMessage(accountId, msg)
         }
@@ -231,8 +238,21 @@ export class WeixinService extends BasePluginService {
         this.hadPollingIssue = true
 
         if (recoverableIssue === 'session_timeout') {
-          console.warn(`[Weixin:${this.pluginId}] Poll session expired, resetting sync state`)
+          this.sessionTimeoutStreak += 1
           this.resetPollingCursor()
+          const now = Date.now()
+          const shouldLogExpiry =
+            this.lastSessionExpiryLogAt === 0 ||
+            now - this.lastSessionExpiryLogAt >= SESSION_EXPIRY_LOG_INTERVAL_MS
+          if (shouldLogExpiry) {
+            console.warn(
+              `[Weixin:${this.pluginId}] Poll session expired, resetting sync state` +
+                (this.sessionTimeoutStreak > 1
+                  ? ` (failures in a row: ${this.sessionTimeoutStreak}; next backoff ≤120s)`
+                  : '')
+            )
+            this.lastSessionExpiryLogAt = now
+          }
         } else if (recoverableIssue === 'request_timeout') {
           console.warn(`[Weixin:${this.pluginId}] Poll request timed out, retrying`)
         } else {
@@ -244,7 +264,16 @@ export class WeixinService extends BasePluginService {
           })
         }
 
-        await new Promise((resolve) => setTimeout(resolve, recoverableIssue ? 1000 : 3000))
+        const delayMs =
+          recoverableIssue === 'session_timeout'
+            ? Math.min(
+                120_000,
+                1000 * Math.pow(2, Math.min(this.sessionTimeoutStreak - 1, 16))
+              )
+            : recoverableIssue
+              ? 2000
+              : 3000
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
       } finally {
         this.pollAbortController = null
       }
@@ -274,7 +303,14 @@ export class WeixinService extends BasePluginService {
     const messageId = String(msg.message_id ?? msg.client_id ?? `${timestamp}-${userId}`)
     const contextToken = msg.context_token || ''
     if (contextToken) {
-      this.contextTokens.set(`${accountId}:${userId}`, contextToken)
+      const ctxKey = `${accountId}:${userId}`
+      this.contextTokens.set(ctxKey, contextToken)
+      if (this.contextTokens.size > 500) {
+        const oldest = this.contextTokens.keys().next().value
+        if (oldest) {
+          this.contextTokens.delete(oldest)
+        }
+      }
       this.messageReplyMeta.set(messageId, { userId, contextToken })
       if (this.messageReplyMeta.size > 500) {
         const oldest = this.messageReplyMeta.keys().next().value

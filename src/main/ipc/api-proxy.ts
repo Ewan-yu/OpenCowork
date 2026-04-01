@@ -3,6 +3,8 @@ import * as https from 'https'
 import * as http from 'http'
 import { URL } from 'url'
 
+const MAX_RESPONSE_BODY_CHARS = 10_000_000
+
 interface APIStreamRequest {
   requestId: string
   url: string
@@ -195,7 +197,9 @@ function requestViaSystemProxy(args: {
     httpReq.on('response', (res) => {
       let responseBody = ''
       res.on('data', (chunk: Buffer) => {
-        responseBody += chunk.toString()
+        if (responseBody.length < MAX_RESPONSE_BODY_CHARS) {
+          responseBody += chunk.toString()
+        }
       })
       res.on('end', () => {
         finish({
@@ -263,7 +267,9 @@ export function registerApiProxyHandlers(): void {
         const httpReq = httpModule.request(options, (res) => {
           let responseBody = ''
           res.on('data', (chunk: Buffer) => {
-            responseBody += chunk.toString()
+            if (responseBody.length < MAX_RESPONSE_BODY_CHARS) {
+              responseBody += chunk.toString()
+            }
           })
           res.on('end', () => {
             if (providerId || providerBuiltinId) {
@@ -677,9 +683,13 @@ export function registerApiProxyHandlers(): void {
 
 function getSender(event: Electron.IpcMainEvent): Electron.WebContents | null {
   try {
-    const win = BrowserWindow.fromWebContents(event.sender)
+    const sender = event.sender
+    if (sender.isDestroyed() || sender.isCrashed()) {
+      return null
+    }
+    const win = BrowserWindow.fromWebContents(sender)
     if (win && !win.isDestroyed()) {
-      return event.sender
+      return sender
     }
   } catch {
     // Window may have been closed

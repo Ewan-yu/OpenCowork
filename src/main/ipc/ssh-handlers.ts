@@ -33,7 +33,7 @@ import {
   type FileSnapshot
 } from './agent-change-handlers'
 import { createGitIgnoreMatcher } from './gitignore-utils'
-import { safeSendToAllWindows } from '../window-ipc'
+import { safeSendToAllWindows, safeSendToWindow } from '../window-ipc'
 
 // ── SSH Session Manager ──
 
@@ -403,8 +403,8 @@ interface SshConnectionRow {
 
 function broadcastToRenderer(channel: string, data: unknown): void {
   const win = BrowserWindow.getAllWindows()[0]
-  if (win && !win.isDestroyed()) {
-    win.webContents.send(channel, data)
+  if (win) {
+    safeSendToWindow(win, channel, data)
   }
 }
 

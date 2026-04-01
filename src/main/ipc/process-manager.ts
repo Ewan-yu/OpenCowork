@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
+import { safeSendToWindow } from '../window-ipc'
 import { spawn, type ChildProcess } from 'child_process'
 
 interface ProcessMetadata {
@@ -65,8 +66,8 @@ export function registerProcessManagerHandlers(): void {
         }
 
         const win = BrowserWindow.getAllWindows()[0]
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('process:output', {
+        if (win) {
+          safeSendToWindow(win, 'process:output', {
             id,
             data: chunk,
             port: managed.port,
@@ -81,8 +82,8 @@ export function registerProcessManagerHandlers(): void {
       child.on('exit', (code) => {
         managed.exitCode = code
         const win = BrowserWindow.getAllWindows()[0]
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('process:output', {
+        if (win) {
+          safeSendToWindow(win, 'process:output', {
             id,
             data: managed.stopping
               ? '\n[Process stopped by user]\n'
@@ -97,8 +98,8 @@ export function registerProcessManagerHandlers(): void {
 
       child.on('error', (err) => {
         const win = BrowserWindow.getAllWindows()[0]
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('process:output', {
+        if (win) {
+          safeSendToWindow(win, 'process:output', {
             id,
             data: `\n[Process error: ${err.message}]\n`,
             exited: true,

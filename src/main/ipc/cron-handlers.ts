@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { nanoid } from 'nanoid'
 import { getDb } from '../db/database'
+import { safeSendToWindow } from '../window-ipc'
 import {
   scheduleJob,
   cancelJob,
@@ -594,8 +595,8 @@ export function registerCronHandlers(): void {
 
       const firedAt = Date.now()
       const win = BrowserWindow.getAllWindows()[0]
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('cron:fired', {
+      if (win) {
+        safeSendToWindow(win, 'cron:fired', {
           jobId: row.id,
           name: row.name,
           prompt: row.prompt,

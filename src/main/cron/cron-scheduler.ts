@@ -1,5 +1,6 @@
 import cron from 'node-cron'
 import { BrowserWindow } from 'electron'
+import { safeSendToWindow } from '../window-ipc'
 import { getDb } from '../db/database'
 import { runCronAgentInBackground } from './cron-agent-background'
 
@@ -124,8 +125,8 @@ export function markFinished(jobId: string): void {
 
 function sendToRenderer(channel: string, data: unknown): void {
   const win = BrowserWindow.getAllWindows()[0]
-  if (win && !win.isDestroyed()) {
-    win.webContents.send(channel, data)
+  if (win) {
+    safeSendToWindow(win, channel, data)
   }
 }
 

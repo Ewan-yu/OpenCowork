@@ -5,6 +5,7 @@ import * as path from 'path'
 import { glob } from 'glob'
 import { createInterface } from 'readline'
 import { recordLocalTextWriteChange } from './agent-change-handlers'
+import { safeSendToWindow } from '../window-ipc'
 import { createGitIgnoreMatcher } from './gitignore-utils'
 
 const IMAGE_EXTENSIONS = new Set([
@@ -976,8 +977,8 @@ export function registerFsHandlers(): void {
           setTimeout(() => {
             debounceTimers.delete(filePath)
             const win = BrowserWindow.getAllWindows()[0]
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('fs:file-changed', { path: filePath })
+            if (win) {
+              safeSendToWindow(win, 'fs:file-changed', { path: filePath })
             }
           }, 300)
         )
