@@ -1,4 +1,5 @@
 import { toolRegistry } from '@renderer/lib/agent/tool-registry'
+import { IMAGE_GENERATE_TOOL_NAME } from '@renderer/lib/app-plugin/types'
 import type { ToolContext } from '@renderer/lib/tools/tool-types'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 
@@ -25,7 +26,8 @@ const RENDERER_BRIDGED_TOOL_NAMES = new Set([
   'CronRemove',
   'CronList',
   'Task',
-  'Skill'
+  'Skill',
+  IMAGE_GENERATE_TOOL_NAME
 ])
 
 let rendererToolBridgeAttached = false
@@ -73,7 +75,9 @@ export function attachRendererToolBridge(): void {
         if (!RENDERER_BRIDGED_TOOL_NAMES.has(toolName)) {
           await window.electron.ipcRenderer.invoke('sidecar:renderer-tool-response', {
             requestId: payload.requestId,
-            error: `Renderer bridge does not support tool: ${toolName}`
+            ...(isApprovalProbe
+              ? { result: { requiresApproval: false } }
+              : { error: `Renderer bridge does not support tool: ${toolName}` })
           })
           return
         }
@@ -82,7 +86,9 @@ export function attachRendererToolBridge(): void {
         if (!handler) {
           await window.electron.ipcRenderer.invoke('sidecar:renderer-tool-response', {
             requestId: payload.requestId,
-            error: `Tool handler not registered: ${toolName}`
+            ...(isApprovalProbe
+              ? { result: { requiresApproval: false } }
+              : { error: `Tool handler not registered: ${toolName}` })
           })
           return
         }

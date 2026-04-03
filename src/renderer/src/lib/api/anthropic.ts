@@ -38,6 +38,78 @@ function resolveAnthropicEffort(
   }
 }
 
+function readNonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+function readAnthropicThinkingBudget(config: ProviderConfig): number | undefined {
+  if (!config.thinkingEnabled) return undefined
+
+  const thinking = config.thinkingConfig?.bodyParams?.thinking
+  if (!thinking || typeof thinking !== 'object' || Array.isArray(thinking)) return undefined
+
+  const budgetValue = (thinking as Record<string, unknown>).budget_tokens
+  const budgetTokens =
+    typeof budgetValue === 'number'
+      ? budgetValue
+      : typeof budgetValue === 'string'
+        ? Number(budgetValue)
+        : undefined
+
+  return Number.isFinite(budgetTokens) && budgetTokens != null && budgetTokens > 0
+    ? Math.floor(budgetTokens)
+    : undefined
+}
+
+function resolveAnthropicMaxTokens(config: ProviderConfig): number {
+  const configuredMaxTokens = Math.max(1, Math.floor(config.maxTokens ?? 32000))
+  const thinkingBudget = readAnthropicThinkingBudget(config)
+  return thinkingBudget != null ? Math.max(configuredMaxTokens, thinkingBudget + 1) : configuredMaxTokens
+}
+
+function buildAnthropicThinkingBodyParams(config: ProviderConfig): Record<string, unknown> | undefined {
+  const bodyParams = config.thinkingConfig?.bodyParams
+  if (!config.thinkingEnabled || !bodyParams) return undefined
+
+  const nextBodyParams: Record<string, unknown> = { ...bodyParams }
+  const thinking = bodyParams.thinking
+
+  if (thinking && typeof thinking === 'object' && !Array.isArray(thinking)) {
+    nextBodyParams.thinking = { ...(thinking as Record<string, unknown>) }
+  }
+
+  return nextBodyParams
+}
+
+function extractAnthropicCacheCreationUsage(usage: Record<string, unknown> | undefined): Partial<TokenUsage> {
+  if (!usage) return {}
+
+  const cacheCreation =
+    usage.cache_creation && typeof usage.cache_creation === 'object'
+      ? (usage.cache_creation as Record<string, unknown>)
+      : undefined
+
+  const cacheCreation5mTokens = readNonNegativeNumber(cacheCreation?.ephemeral_5m_input_tokens)
+  const cacheCreation1hTokens = readNonNegativeNumber(cacheCreation?.ephemeral_1h_input_tokens)
+
+  if (cacheCreation5mTokens != null || cacheCreation1hTokens != null) {
+    const total = (cacheCreation5mTokens ?? 0) + (cacheCreation1hTokens ?? 0)
+    return {
+      ...(total > 0 ? { cacheCreationTokens: total } : {}),
+      ...(cacheCreation5mTokens != null ? { cacheCreation5mTokens } : {}),
+      ...(cacheCreation1hTokens != null ? { cacheCreation1hTokens } : {})
+    }
+  }
+
+  const cacheCreationTokens = readNonNegativeNumber(usage.cache_creation_input_tokens)
+  return cacheCreationTokens != null
+    ? {
+        cacheCreationTokens,
+        cacheCreation5mTokens: cacheCreationTokens
+      }
+    : {}
+}
+
 class AnthropicProvider implements APIProvider {
   readonly name = 'Anthropic Messages'
   readonly type = 'anthropic' as const
@@ -52,10 +124,11 @@ class AnthropicProvider implements APIProvider {
     let firstTokenAt: number | null = null
     let outputTokens = 0
     const promptCacheEnabled = config.enablePromptCache !== false
-    const systemPromptCacheEnabled = promptCacheEnabled || config.enableSystemPromptCache === true
+    const systemPromptCacheEnabled = config.enableSystemPromptCache !== false
+    const thinkingBodyParams = buildAnthropicThinkingBodyParams(config)
     const body: Record<string, unknown> = {
       model: config.model,
-      max_tokens: config.maxTokens ?? 32000,
+      max_tokens: resolveAnthropicMaxTokens(config),
       ...(promptCacheEnabled ? { cache_control: buildAnthropicCacheControl() } : {}),
       ...(config.systemPrompt
         ? {
@@ -68,19 +141,15 @@ class AnthropicProvider implements APIProvider {
             ]
           }
         : {}),
-      messages: this.formatMessages(
-        this.normalizeMessagesForAnthropic(messages),
-        promptCacheEnabled
-      ),
+      messages: this.formatMessages(this.normalizeMessagesForAnthropic(messages), promptCacheEnabled),
       ...(tools.length > 0
         ? { tools: this.formatTools(tools, promptCacheEnabled), tool_choice: { type: 'auto' } }
         : {}),
       stream: true
     }
 
-    // Merge thinking/reasoning params when enabled; explicit disable params when off
     if (config.thinkingEnabled && config.thinkingConfig) {
-      Object.assign(body, config.thinkingConfig.bodyParams)
+      if (thinkingBodyParams) Object.assign(body, thinkingBodyParams)
       const effort = resolveAnthropicEffort(config)
       if (effort) {
         body.output_config = {
@@ -96,6 +165,8 @@ class AnthropicProvider implements APIProvider {
     } else if (!config.thinkingEnabled && config.thinkingConfig?.disabledBodyParams) {
       Object.assign(body, config.thinkingConfig.disabledBodyParams)
     }
+
+    body.max_tokens = resolveAnthropicMaxTokens(config)
 
     const baseUrl = (config.baseUrl || 'https://api.anthropic.com').trim().replace(/\/+$/, '')
     const url = `${baseUrl}/v1/messages`
@@ -136,10 +207,6 @@ class AnthropicProvider implements APIProvider {
       }
     }
 
-    // Anthropic splits usage across two events:
-    // - message_start → input_tokens, cache_creation_input_tokens, cache_read_input_tokens
-    // - message_delta → output_tokens
-    // We accumulate the message_start usage and merge it into message_end.
     const pendingUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
 
     for await (const sse of ipcStreamRequest({
@@ -157,7 +224,7 @@ class AnthropicProvider implements APIProvider {
       try {
         data = JSON.parse(sse.data)
       } catch {
-        continue // Skip non-JSON SSE events (keep-alives, partial chunks)
+        continue
       }
 
       switch (data.type) {
@@ -165,9 +232,7 @@ class AnthropicProvider implements APIProvider {
           const msgUsage = data.message?.usage
           if (msgUsage) {
             pendingUsage.inputTokens = msgUsage.input_tokens ?? 0
-            if (msgUsage.cache_creation_input_tokens) {
-              pendingUsage.cacheCreationTokens = msgUsage.cache_creation_input_tokens
-            }
+            Object.assign(pendingUsage, extractAnthropicCacheCreationUsage(msgUsage))
             if (msgUsage.cache_read_input_tokens) {
               pendingUsage.cacheReadTokens = msgUsage.cache_read_input_tokens
             }
@@ -197,7 +262,6 @@ class AnthropicProvider implements APIProvider {
               yield thinkingEncryptedEvent
             }
           }
-          // thinking blocks are handled via their deltas
           break
         }
 
@@ -250,7 +314,6 @@ class AnthropicProvider implements APIProvider {
                 }
               }
             } else {
-              // Anthropic may omit input_json_delta for empty tool input "{}".
               yield {
                 type: 'tool_call_end',
                 toolCallId: toolCall.id,
@@ -265,7 +328,6 @@ class AnthropicProvider implements APIProvider {
         }
 
         case 'message_delta': {
-          // Defensive flush: in rare provider edge-cases a tool block can remain unclosed.
           if (toolCallsByBlockIndex.size > 0) {
             for (const [blockIndex, toolCall] of toolCallsByBlockIndex) {
               const raw = (toolBuffersByBlockIndex.get(blockIndex) ?? '').trim()
@@ -312,13 +374,26 @@ class AnthropicProvider implements APIProvider {
   }
 
   formatMessages(messages: UnifiedMessage[], promptCacheEnabled = false): unknown[] {
-    const formattedMessages = messages
+    return messages
       .filter((m) => m.role !== 'system')
       .map((m) => {
         if (typeof m.content === 'string') {
-          return { role: m.role, content: m.content }
+          if (!promptCacheEnabled || !m.content.trim()) {
+            return { role: m.role, content: m.content }
+          }
+
+          return {
+            role: m.role,
+            content: [
+              {
+                type: 'text',
+                text: m.content,
+                cache_control: buildAnthropicCacheControl()
+              }
+            ]
+          }
         }
-        // Convert ContentBlock[] to Anthropic format
+
         const blocks = m.content as ContentBlock[]
         return {
           role: m.role === 'tool' ? 'user' : m.role,
@@ -334,7 +409,13 @@ class AnthropicProvider implements APIProvider {
                     : {})
                 }
               case 'text':
-                return { type: 'text', text: b.text }
+                return {
+                  type: 'text',
+                  text: b.text,
+                  ...(promptCacheEnabled && b.text.trim()
+                    ? { cache_control: buildAnthropicCacheControl() }
+                    : {})
+                }
               case 'tool_use':
                 return { type: 'tool_use', id: b.id, name: b.name, input: b.input }
               case 'tool_result': {
@@ -354,7 +435,12 @@ class AnthropicProvider implements APIProvider {
                     return cb
                   })
                 }
-                return { type: 'tool_result', tool_use_id: b.toolUseId, content: formattedContent }
+                return {
+                  type: 'tool_result',
+                  tool_use_id: b.toolUseId,
+                  content: formattedContent,
+                  ...(promptCacheEnabled ? { cache_control: buildAnthropicCacheControl() } : {})
+                }
               }
               case 'image':
                 return {
@@ -364,7 +450,8 @@ class AnthropicProvider implements APIProvider {
                     media_type: b.source.mediaType,
                     data: b.source.data,
                     ...(b.source.url ? { url: b.source.url } : {})
-                  }
+                  },
+                  ...(promptCacheEnabled ? { cache_control: buildAnthropicCacheControl() } : {})
                 }
               default:
                 return { type: 'text', text: '[unsupported block]' }
@@ -372,14 +459,6 @@ class AnthropicProvider implements APIProvider {
           })
         }
       })
-
-    if (promptCacheEnabled) {
-      this.applyMessageCacheBreakpoint(
-        formattedMessages as Array<{ content: string | Array<Record<string, unknown>> }>
-      )
-    }
-
-    return formattedMessages
   }
 
   private normalizeMessagesForAnthropic(messages: UnifiedMessage[]): UnifiedMessage[] {
@@ -441,40 +520,6 @@ class AnthropicProvider implements APIProvider {
     }
 
     return normalized
-  }
-
-  private applyMessageCacheBreakpoint(
-    messages: Array<{ content: string | Array<Record<string, unknown>> }>
-  ): void {
-    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-      const message = messages[messageIndex]
-      if (typeof message.content === 'string') {
-        if (!message.content.trim()) continue
-        message.content = [
-          {
-            type: 'text',
-            text: message.content,
-            cache_control: buildAnthropicCacheControl()
-          }
-        ]
-        return
-      }
-
-      for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex -= 1) {
-        const block = message.content[blockIndex]
-        if (!this.isExplicitPromptCacheableBlock(block)) continue
-        message.content[blockIndex] = {
-          ...block,
-          cache_control: buildAnthropicCacheControl()
-        }
-        return
-      }
-    }
-  }
-
-  private isExplicitPromptCacheableBlock(block: Record<string, unknown>): boolean {
-    const blockType = block.type
-    return blockType === 'text' || blockType === 'image' || blockType === 'tool_result'
   }
 
   formatTools(tools: ToolDefinition[], promptCacheEnabled = false): unknown[] {

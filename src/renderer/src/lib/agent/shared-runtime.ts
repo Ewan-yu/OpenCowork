@@ -202,6 +202,14 @@ export function mergeTokenUsage(target: TokenUsage, usage: TokenUsage): void {
   if (usage.cacheCreationTokens) {
     target.cacheCreationTokens = (target.cacheCreationTokens ?? 0) + usage.cacheCreationTokens
   }
+  if (usage.cacheCreation5mTokens) {
+    target.cacheCreation5mTokens =
+      (target.cacheCreation5mTokens ?? 0) + usage.cacheCreation5mTokens
+  }
+  if (usage.cacheCreation1hTokens) {
+    target.cacheCreation1hTokens =
+      (target.cacheCreation1hTokens ?? 0) + usage.cacheCreation1hTokens
+  }
   if (usage.cacheReadTokens) {
     target.cacheReadTokens = (target.cacheReadTokens ?? 0) + usage.cacheReadTokens
   }

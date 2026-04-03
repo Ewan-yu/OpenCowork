@@ -10,7 +10,7 @@ import type {
 } from '@renderer/lib/api/types'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
-import { getBillableInputTokens } from '@renderer/lib/format-tokens'
+import { getBillableInputTokens, resolveCacheCreationCost } from '@renderer/lib/format-tokens'
 import { truncateRequestDebugForPersistence } from '@renderer/lib/debug-store'
 
 export interface UsageAnalyticsQuery {
@@ -121,16 +121,24 @@ function computeCosts(
   const billableInput = usage.billableInputTokens ?? usage.inputTokens
   const inputPrice = toNullableNumber(modelConfig?.inputPrice)
   const outputPrice = toNullableNumber(modelConfig?.outputPrice)
-  const cacheCreationPrice = toNullableNumber(modelConfig?.cacheCreationPrice)
   const cacheHitPrice = toNullableNumber(modelConfig?.cacheHitPrice)
+  const cacheCreationTokens =
+    usage.cacheCreationTokens ??
+    (usage.cacheCreation5mTokens ?? 0) +
+      (usage.cacheCreation1hTokens ?? 0)
+  const { price: resolvedCacheCreationPrice, cost: resolvedCacheCreationCostUsd } =
+    resolveCacheCreationCost(usage, modelConfig)
+  const cacheCreationPrice = toNullableNumber(resolvedCacheCreationPrice ?? undefined)
 
   const inputCostUsd = inputPrice == null ? null : (billableInput * inputPrice) / 1_000_000
   const outputCostUsd =
     outputPrice == null ? null : ((usage.outputTokens ?? 0) * outputPrice) / 1_000_000
   const cacheCreationCostUsd =
-    cacheCreationPrice == null
-      ? null
-      : ((usage.cacheCreationTokens ?? 0) * cacheCreationPrice) / 1_000_000
+    cacheCreationTokens > 0
+      ? resolvedCacheCreationCostUsd
+      : cacheCreationPrice == null
+        ? null
+        : 0
   const cacheHitCostUsd =
     cacheHitPrice == null ? null : ((usage.cacheReadTokens ?? 0) * cacheHitPrice) / 1_000_000
 

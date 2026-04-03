@@ -47,6 +47,49 @@ export function getBillableTotalTokens(
   return getBillableInputTokens(usage, requestType) + (usage.outputTokens ?? 0)
 }
 
+export function resolveCacheCreationCost(
+  usage: TokenUsage,
+  model: AIModelConfig | null | undefined
+): { price: number | null; cost: number | null } {
+  const totalCacheCreationTokens =
+    usage.cacheCreationTokens ??
+    (usage.cacheCreation5mTokens ?? 0) +
+      (usage.cacheCreation1hTokens ?? 0)
+
+  if (totalCacheCreationTokens <= 0) {
+    return {
+      price: model?.cacheCreationPrice ?? (model?.inputPrice != null ? model.inputPrice * 1.25 : null),
+      cost: 0
+    }
+  }
+
+  const hasDetailedBreakdown =
+    usage.cacheCreation5mTokens != null || usage.cacheCreation1hTokens != null
+  const cacheCreation1hTokens = usage.cacheCreation1hTokens ?? 0
+  const detailedCacheCreationTokens = (usage.cacheCreation5mTokens ?? 0) + cacheCreation1hTokens
+  const cacheCreation5mTokens = hasDetailedBreakdown
+    ? (usage.cacheCreation5mTokens ?? 0) +
+      Math.max(totalCacheCreationTokens - detailedCacheCreationTokens, 0)
+    : totalCacheCreationTokens
+  const cacheCreation5mPrice =
+    model?.cacheCreationPrice ?? (model?.inputPrice != null ? model.inputPrice * 1.25 : null)
+  const cacheCreation1hPrice = model?.inputPrice != null ? model.inputPrice * 2 : null
+
+  if (cacheCreation5mPrice == null || (cacheCreation1hTokens > 0 && cacheCreation1hPrice == null)) {
+    return { price: null, cost: null }
+  }
+
+  const cost =
+    (cacheCreation5mTokens * cacheCreation5mPrice +
+      cacheCreation1hTokens * (cacheCreation1hPrice ?? 0)) /
+    1_000_000
+
+  return {
+    price: cost > 0 ? (cost * 1_000_000) / totalCacheCreationTokens : cacheCreation5mPrice,
+    cost
+  }
+}
+
 /**
  * Calculate the USD cost of a request based on token usage and model pricing.
  * Prices in AIModelConfig are per **million** tokens.
@@ -59,18 +102,18 @@ export function calculateCost(
   if (!model || model.inputPrice == null || model.outputPrice == null) return null
 
   const cacheRead = usage.cacheReadTokens ?? 0
-  const cacheCreation = usage.cacheCreationTokens ?? 0
+  const cacheCreationTokens =
+    usage.cacheCreationTokens ??
+    (usage.cacheCreation5mTokens ?? 0) +
+      (usage.cacheCreation1hTokens ?? 0)
   const billableInput = getBillableInputTokens(usage, model.type)
   const cacheReadPrice = model.cacheHitPrice ?? model.inputPrice * 0.1
-  const cacheCreationPriceVal = model.cacheCreationPrice ?? model.inputPrice * 1.25
-  const inputCost =
-    (billableInput * model.inputPrice +
-      cacheRead * cacheReadPrice +
-      cacheCreation * cacheCreationPriceVal) /
-    1_000_000
+  const { cost: cacheCreationCost } = resolveCacheCreationCost(usage, model)
+  if (cacheCreationTokens > 0 && cacheCreationCost == null) return null
 
+  const inputCost = (billableInput * model.inputPrice + cacheRead * cacheReadPrice) / 1_000_000
   const outputCost = ((usage.outputTokens ?? 0) * model.outputPrice) / 1_000_000
-  return inputCost + outputCost
+  return inputCost + outputCost + (cacheCreationCost ?? 0)
 }
 
 /**

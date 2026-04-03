@@ -18,6 +18,10 @@ export interface TokenUsage {
   billableInputTokens?: number
   /** Anthropic prompt caching: tokens written to cache */
   cacheCreationTokens?: number
+  /** Anthropic prompt caching: tokens written to 5m cache */
+  cacheCreation5mTokens?: number
+  /** Anthropic prompt caching: tokens written to 1h cache */
+  cacheCreation1hTokens?: number
   /** Anthropic prompt caching: tokens read from cache */
   cacheReadTokens?: number
   /** Reasoning model (o3/o4-mini etc.) internal thinking tokens */
