@@ -10,10 +10,7 @@ import {
   CalendarDays,
   ChevronDown,
   CircleHelp,
-  Copy,
   Download,
-  Eraser,
-  FileText,
   FolderInput,
   FolderOpen,
   FolderPlus,
@@ -23,18 +20,22 @@ import {
   Info,
   Languages,
   Loader2,
-  MessageSquare,
-  Monitor,
   MoreHorizontal,
   PanelLeftClose,
-  Pencil,
   Pin,
   PinOff,
   Plus,
   Settings,
   Trash2,
   Upload,
-  Wand2
+  Wand2,
+  Monitor,
+  Pencil,
+  FileText,
+  MessageSquare,
+  GitBranch,
+  Copy,
+  Eraser
 } from 'lucide-react'
 import { DynamicIcon } from 'lucide-react/dynamic'
 import { Button } from '@renderer/components/ui/button'
@@ -405,6 +406,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     (chatView === 'project' ||
       chatView === 'archive' ||
       chatView === 'channels' ||
+      chatView === 'git' ||
       chatView === 'session')
   const scopedProjectId = isProjectScoped ? (activeProject?.id ?? null) : null
   const projectIcon = scopedProjectId ? deriveProjectIcon(scopedProjectId, sessions) : undefined
@@ -479,6 +481,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
 
   const openChannels = useCallback(() => {
     useUIStore.getState().navigateToChannels()
+  }, [])
+
+  const openGit = useCallback(() => {
+    useUIStore.getState().navigateToGit()
   }, [])
 
   const openSession = useCallback((sessionId: string) => {
@@ -873,6 +879,14 @@ export function WorkspaceSidebar(): React.JSX.Element {
               >
                 <MessageSquare className="size-4" />
                 {t('sidebar.projectChannels', { defaultValue: '聊天频道' })}
+              </Button>
+              <Button
+                variant={chatView === 'git' ? 'secondary' : 'ghost'}
+                className="h-8 w-full justify-start gap-2 text-[12px]"
+                onClick={openGit}
+              >
+                <GitBranch className="size-4" />
+                {t('sidebar.projectGit', { defaultValue: 'Git' })}
               </Button>
               <Button
                 variant="ghost"
