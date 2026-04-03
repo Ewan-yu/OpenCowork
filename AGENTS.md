@@ -5,6 +5,9 @@
 - `src/main` contains the Electron main process: IPC handlers, database access, cron, channels/plugins, updater, and SSH/MCP integrations.
 - `src/preload` exposes the secure renderer bridge APIs.
 - `src/renderer/src` contains the React app (`components/`, `stores/`, `hooks/`, `lib/`, `locales/`).
+- `src/components`, `src/hooks`, `src/lib` are shared modules used across main and renderer processes.
+- `src/shared` contains TypeScript types shared between main and renderer.
+- `src/dotnet` houses the .NET sidecar agent project (`OpenCowork.Agent`).
 - Bundled agent assets live under `resources/agents`, `resources/skills`, `resources/prompts`, and `resources/commands`.
 - The docs site is a separate Next.js workspace under `docs/` with its own `package.json`.
 - Generated output goes to `out/` and `dist/`; do not edit those directories manually.
@@ -18,7 +21,10 @@
 - `npm run typecheck`: run both node and web TypeScript checks.
 - `npm run format`: format the repo with Prettier.
 - `npm run build`: typecheck, then build the app.
-- `npm run build:win`, `npm run build:mac`, `npm run build:linux`: create platform-specific packages.
+- `npm run build:win`, `npm run build:mac`, `npm run build:linux`: create platform-specific packages (includes sidecar build).
+- `npm run build:sidecar`: build the .NET sidecar for the current platform.
+- `npm run build:sidecar:win`, `npm run build:sidecar:mac`, `npm run build:sidecar:linux`: build sidecar for specific platforms.
+- `npm run benchmark:sidecar`: run performance benchmarks on the sidecar.
 - Docs workspace: `npm --prefix docs run dev`, `npm --prefix docs run build`, `npm --prefix docs run types:check`.
 
 ## Coding Style & Naming Conventions
