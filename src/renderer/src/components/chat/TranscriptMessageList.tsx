@@ -1,100 +1,121 @@
 import * as React from 'react'
-import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
+import { VList } from 'virtua'
+import type { ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
+import { cn } from '@renderer/lib/utils'
 import { MessageItem } from './MessageItem'
+import { buildRenderableMessageMeta, getToolResultsLookup } from './transcript-utils'
 
 interface TranscriptMessageListProps {
   messages: UnifiedMessage[]
   streamingMessageId?: string | null
+  className?: string
 }
 
-function isToolResultOnlyUserMessage(message: UnifiedMessage): boolean {
-  return (
-    message.role === 'user' &&
-    Array.isArray(message.content) &&
-    message.content.every((block) => block.type === 'tool_result')
-  )
+type ToolResultsLookup = Map<string, { content: ToolResultContent; isError?: boolean }>
+
+interface VirtualTranscriptMessageRowProps {
+  rowIndex: number
+  message: UnifiedMessage
+  isStreaming: boolean
+  isLastUserMessage: boolean
+  isLastAssistantMessage: boolean
+  toolResults?: ToolResultsLookup
 }
 
-function collectToolResults(
-  blocks: ContentBlock[],
-  target: Map<string, { content: ToolResultContent; isError?: boolean }>
-): void {
-  for (const block of blocks) {
-    if (block.type === 'tool_result') {
-      target.set(block.toolUseId, { content: block.content, isError: block.isError })
-    }
-  }
-}
+const messageLookupCache = new WeakMap<UnifiedMessage[], Map<string, UnifiedMessage>>()
 
-function getToolResultsLookup(
-  messages: UnifiedMessage[]
-): Map<string, Map<string, { content: ToolResultContent; isError?: boolean }>> {
-  const lookup = new Map<string, Map<string, { content: ToolResultContent; isError?: boolean }>>()
-  let currentAssistantMessageId: string | null = null
+function getMessageLookup(messages: UnifiedMessage[]): Map<string, UnifiedMessage> {
+  const cached = messageLookupCache.get(messages)
+  if (cached) return cached
 
+  const next = new Map<string, UnifiedMessage>()
   for (const message of messages) {
-    if (message.role === 'assistant') {
-      currentAssistantMessageId = message.id
-      continue
-    }
-
-    if (isToolResultOnlyUserMessage(message) && currentAssistantMessageId) {
-      let results = lookup.get(currentAssistantMessageId)
-      if (!results) {
-        results = new Map()
-        lookup.set(currentAssistantMessageId, results)
-      }
-      collectToolResults(message.content as ContentBlock[], results)
-      continue
-    }
-
-    currentAssistantMessageId = null
+    next.set(message.id, message)
   }
 
-  return lookup
+  messageLookupCache.set(messages, next)
+  return next
 }
+
+const VirtualTranscriptMessageRow = React.memo(function VirtualTranscriptMessageRow({
+  rowIndex,
+  message,
+  isStreaming,
+  isLastUserMessage,
+  isLastAssistantMessage,
+  toolResults
+}: VirtualTranscriptMessageRowProps): React.JSX.Element {
+  return (
+    <div data-index={rowIndex} className="mx-auto max-w-3xl px-4 pb-6">
+      <MessageItem
+        message={message}
+        messageId={message.id}
+        isStreaming={isStreaming}
+        isLastUserMessage={isLastUserMessage}
+        isLastAssistantMessage={isLastAssistantMessage}
+        disableAnimation
+        toolResults={toolResults}
+        renderMode="transcript"
+      />
+    </div>
+  )
+})
 
 export function TranscriptMessageList({
   messages,
-  streamingMessageId = null
+  streamingMessageId = null,
+  className
 }: TranscriptMessageListProps): React.JSX.Element {
   const toolResultsLookup = React.useMemo(() => getToolResultsLookup(messages), [messages])
-
-  const visibleMessages = React.useMemo(
-    () => messages.filter((message) => !isToolResultOnlyUserMessage(message)),
-    [messages]
+  const renderableMeta = React.useMemo(
+    () => buildRenderableMessageMeta(messages, streamingMessageId),
+    [messages, streamingMessageId]
   )
-
-  const lastUserId = React.useMemo(() => {
-    for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
-      if (visibleMessages[index].role === 'user') return visibleMessages[index].id
+  const messageLookup = React.useMemo(() => getMessageLookup(messages), [messages])
+  const rowKeys = React.useMemo(
+    () => renderableMeta.map((item) => item.messageId),
+    [renderableMeta]
+  )
+  const metaByMessageId = React.useMemo(() => {
+    const next = new Map<string, (typeof renderableMeta)[number]>()
+    for (const item of renderableMeta) {
+      next.set(item.messageId, item)
     }
-    return null
-  }, [visibleMessages])
+    return next
+  }, [renderableMeta])
 
-  const lastAssistantId = React.useMemo(() => {
-    for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
-      if (visibleMessages[index].role === 'assistant') return visibleMessages[index].id
-    }
-    return null
-  }, [visibleMessages])
+  if (rowKeys.length === 0) {
+    return <div className="text-sm text-muted-foreground/70">暂无回放</div>
+  }
 
   return (
-    <div className="space-y-5">
-      {visibleMessages.map((message) => (
-        <div key={message.id} className="mx-auto max-w-3xl">
-          <MessageItem
-            message={message}
-            messageId={message.id}
-            isStreaming={streamingMessageId === message.id}
-            isLastUserMessage={message.id === lastUserId}
-            isLastAssistantMessage={message.id === lastAssistantId}
-            disableAnimation
-            toolResults={toolResultsLookup.get(message.id)}
-            renderMode="transcript"
-          />
-        </div>
-      ))}
+    <div className={cn('not-prose h-[min(60vh,40rem)] min-h-[20rem]', className)}>
+      <VList
+        bufferSize={typeof window !== 'undefined' ? window.innerHeight : 0}
+        data={rowKeys}
+        style={{ height: '100%', overflowAnchor: 'none' }}
+      >
+        {(rowKey, rowIndex): React.JSX.Element => {
+          const message = messageLookup.get(rowKey)
+          const meta = metaByMessageId.get(rowKey)
+
+          if (!message || !meta) {
+            return <div key={rowKey} />
+          }
+
+          return (
+            <VirtualTranscriptMessageRow
+              key={rowKey}
+              rowIndex={rowIndex}
+              message={message}
+              isStreaming={streamingMessageId === message.id}
+              isLastUserMessage={meta.isLastUserMessage}
+              isLastAssistantMessage={meta.isLastAssistantMessage}
+              toolResults={toolResultsLookup.get(message.id)}
+            />
+          )
+        }}
+      </VList>
     </div>
   )
 }

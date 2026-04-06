@@ -963,6 +963,50 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
   )
 }
 
+function visualizeWhitespace(text: string): string {
+  return text.replace(/\t/g, '→\t').replace(/ /g, '·')
+}
+
+function EditPayloadPane({
+  label,
+  value,
+  tone = 'default'
+}: {
+  label: string
+  value: string
+  tone?: 'default' | 'old' | 'new'
+}): React.JSX.Element {
+  const borderTone =
+    tone === 'old'
+      ? 'border-red-500/20'
+      : tone === 'new'
+        ? 'border-green-500/20'
+        : 'border-border/60'
+  const headerTone =
+    tone === 'old'
+      ? 'text-red-400/80'
+      : tone === 'new'
+        ? 'text-green-400/80'
+        : 'text-muted-foreground/60'
+
+  return (
+    <div className={cn('rounded-md border bg-muted/20 dark:bg-zinc-950/70', borderTone)}>
+      <div className="flex items-center gap-1.5 border-b border-border/50 px-2.5 py-1.5 text-[10px] uppercase tracking-wide">
+        <span className={headerTone}>{label}</span>
+        <span className="text-muted-foreground/40">{lineCount(value)} lines</span>
+        <span className="text-muted-foreground/40">{value.length} chars</span>
+        <CopyBtn text={value} />
+      </div>
+      <pre
+        className="max-h-48 overflow-auto whitespace-pre-wrap break-words px-2.5 py-2 text-[11px] text-foreground/80 dark:text-zinc-300/80"
+        style={{ fontFamily: MONO_FONT }}
+      >
+        {visualizeWhitespace(value)}
+      </pre>
+    </div>
+  )
+}
+
 /** Structured input field row */
 function InputField({
   label,
@@ -1049,30 +1093,61 @@ function StructuredInput({
     )
   }
 
-  // Edit: lightweight preview until the diff is ready to render
-  if (name === 'Edit') {
+  // Edit / PatchEdit: show file path + counts during streaming, full payload when available
+  if (name === 'Edit' || name === 'PatchEdit') {
     const filePath = String(input.file_path ?? input.path ?? '')
     const explanation = input.explanation ? String(input.explanation) : null
     const oldStr = typeof input.old_string === 'string' ? input.old_string : ''
     const newStr = typeof input.new_string === 'string' ? input.new_string : ''
-    const hasCounts = oldStr.length > 0 || newStr.length > 0
+    const oldPreview = typeof input.old_string_preview === 'string' ? input.old_string_preview : ''
+    const newPreview = typeof input.new_string_preview === 'string' ? input.new_string_preview : ''
+    const patch = typeof input.patch === 'string' ? input.patch : ''
+    const patchPreview = typeof input.patch_preview === 'string' ? input.patch_preview : ''
+    const replaceAll = input.replace_all === true
+    const matchMode = typeof input.match_mode === 'string' ? input.match_mode : null
+    const visibleOld = oldStr || oldPreview
+    const visibleNew = newStr || newPreview
+    const visiblePatch = patch || patchPreview
+    const hasCounts =
+      visiblePatch.length > 0 || visibleOld.length > 0 || visibleNew.length > 0 || name === 'PatchEdit'
 
     return (
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {filePath && (
           <div className="flex items-center gap-1.5 text-xs">
             <FileCode className="size-3 text-amber-400" />
             <span className="font-mono text-[11px] break-all" style={{ fontFamily: MONO_FONT }}>
               {filePath}
             </span>
+            {replaceAll && (
+              <span className="rounded bg-amber-500/10 px-1 py-0.5 text-[9px] text-amber-400/80">
+                replace_all
+              </span>
+            )}
+            {matchMode && (
+              <span className="rounded bg-blue-500/10 px-1 py-0.5 text-[9px] text-blue-400/80">
+                {matchMode}
+              </span>
+            )}
           </div>
         )}
         {explanation && (
           <p className="pl-[18px] text-[11px] text-muted-foreground/60">{explanation}</p>
         )}
-        {hasCounts && (
+        {hasCounts && name === 'Edit' && (
           <div className="pl-[18px] text-[10px] text-muted-foreground/40">
-            -{lineCount(oldStr)} / +{lineCount(newStr)} lines
+            -{lineCount(visibleOld)} / +{lineCount(visibleNew)} lines
+          </div>
+        )}
+        {name === 'PatchEdit' && visiblePatch && (
+          <div className="space-y-2 pl-[18px]">
+            <EditPayloadPane label="patch" value={visiblePatch} tone="default" />
+          </div>
+        )}
+        {name === 'Edit' && (visibleOld || visibleNew) && (
+          <div className="space-y-2 pl-[18px]">
+            {visibleOld && <EditPayloadPane label="old_string" value={visibleOld} tone="old" />}
+            {visibleNew && <EditPayloadPane label="new_string" value={visibleNew} tone="new" />}
           </div>
         )}
       </div>
@@ -1396,7 +1471,15 @@ function StructuredInput({
 }
 
 // Tools that auto-expand when they have output (mutation/action tools)
-const EXPAND_TOOLS = new Set(['Edit', 'Write', 'Delete', 'Bash', 'TaskCreate', 'TaskList'])
+const EXPAND_TOOLS = new Set([
+  'Edit',
+  'PatchEdit',
+  'Write',
+  'Delete',
+  'Bash',
+  'TaskCreate',
+  'TaskList'
+])
 
 export function ToolStatusDot({
   status
@@ -1475,6 +1558,8 @@ export function ToolCallCard({
     status !== 'running' &&
     !!input.old_string &&
     !!input.new_string
+  const showSettledPatch =
+    name === 'PatchEdit' && status !== 'streaming' && status !== 'running' && !!input.patch
   const showSettledWriteContent =
     name === 'Write' && status !== 'streaming' && status !== 'running' && !!input.content
   const elapsed =
@@ -1502,7 +1587,7 @@ export function ToolCallCard({
                   (typeof input.content_lines === 'number' && input.content_lines)) &&
                   ` (${typeof input.content_lines === 'number' ? input.content_lines : lineCount(String(input.content ?? ''))} lines)`}
               </span>
-            ) : name === 'Edit' && (input.file_path || input.path) ? (
+            ) : (name === 'Edit' || name === 'PatchEdit') && (input.file_path || input.path) ? (
               <span className="text-amber-400/70 text-[10px] animate-pulse">
                 编辑:{' '}
                 {String(input.file_path || input.path)
@@ -1539,8 +1624,12 @@ export function ToolCallCard({
         <div className="mt-1.5 space-y-2 pl-5 min-w-0 overflow-hidden">
           {/* Diff view for Edit tool */}
           {showSettledEditDiff && (
-            <InlineDiff oldStr={String(input.old_string)} newStr={String(input.new_string)} />
+            <div className="space-y-2">
+              <StructuredInput name={name} input={input} />
+              <InlineDiff oldStr={String(input.old_string)} newStr={String(input.new_string)} />
+            </div>
           )}
+          {showSettledPatch && <StructuredInput name={name} input={input} />}
           {/* Write: show content with syntax highlighting */}
           {showSettledWriteContent && name === 'Write' && (
             <div>
@@ -1575,6 +1664,7 @@ export function ToolCallCard({
           {/* Structured Input — tool-specific rendering */}
           {!(
             showSettledEditDiff ||
+            showSettledPatch ||
             showSettledWriteContent ||
             (name === 'TaskCreate' && !!input.subject)
           ) && <StructuredInput name={name} input={input} />}
@@ -1611,18 +1701,26 @@ export function ToolCallCard({
             <TaskListOutputBlock output={outputAsString(output)!} />
           )}
           {output &&
-            ['Edit', 'Write', 'Delete'].includes(name) &&
+            ['Edit', 'PatchEdit', 'Write', 'Delete'].includes(name) &&
             (() => {
               const s = outputAsString(output) ?? ''
+              const parsed = decodeStructuredToolResult(s)
+              const success = !!(parsed && !Array.isArray(parsed) && parsed.success === true)
+              const matchMode =
+                parsed && !Array.isArray(parsed) && typeof parsed.matchMode === 'string'
+                  ? parsed.matchMode
+                  : null
               return (
                 <div className="flex items-center gap-1.5 text-xs">
-                  {(() => {
-                    const parsed = decodeStructuredToolResult(s)
-                    return !!(parsed && !Array.isArray(parsed) && parsed.success === true)
-                  })() ? (
+                  {success ? (
                     <>
                       <CheckCircle2 className="size-3 text-green-500" />
                       <span className="text-green-500/70">{t('toolCall.appliedSuccessfully')}</span>
+                      {matchMode && (
+                        <span className="rounded bg-blue-500/10 px-1 py-0.5 text-[10px] text-blue-400/80">
+                          {matchMode}
+                        </span>
+                      )}
                     </>
                   ) : (
                     <>
@@ -1647,6 +1745,7 @@ export function ToolCallCard({
               'TaskGet',
               'TaskList',
               'Edit',
+              'PatchEdit',
               'Write',
               'Delete',
               'AskUserQuestion'

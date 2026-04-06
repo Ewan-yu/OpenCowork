@@ -40,7 +40,18 @@ const DEFAULT_AGENT = 'CronAgent'
 const FALLBACK_CRON_AGENT = {
   name: DEFAULT_AGENT,
   description: 'Scheduled task agent for cron jobs',
-  tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Shell', 'Bash', 'Notify', 'AskUserQuestion'],
+  tools: [
+    'Read',
+    'Write',
+    'Edit',
+    'PatchEdit',
+    'Glob',
+    'Grep',
+    'Shell',
+    'Bash',
+    'Notify',
+    'AskUserQuestion'
+  ],
   disallowedTools: [],
   maxTurns: 15,
   model: undefined as string | undefined,

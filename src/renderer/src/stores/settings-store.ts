@@ -26,6 +26,7 @@ export type PromptRecommendationModelBindings = Record<
 export type MainModelSelectionMode = 'auto' | 'manual'
 export type ClarifyPlanModeAutoSwitchTarget = 'off' | 'code' | 'acp'
 export type ProjectDefaultDirectoryMode = 'last-used' | 'custom'
+export type FileDiffViewMode = 'split' | 'inline'
 
 export interface RecentWorkingTarget {
   workingFolder: string
@@ -146,6 +147,7 @@ interface SettingsStore {
   editorWorkspaceEnabled: boolean
   editorRemoteLanguageServiceEnabled: boolean
   toolResultFormat: 'toon' | 'json'
+  fileDiffViewMode: FileDiffViewMode
   userName: string
   userAvatar: string
   conversationGuideSeen: boolean
@@ -231,6 +233,7 @@ export const useSettingsStore = create<SettingsStore>()(
       editorWorkspaceEnabled: false,
       editorRemoteLanguageServiceEnabled: false,
       toolResultFormat: 'toon',
+      fileDiffViewMode: 'split',
       userName: '',
       userAvatar: '',
       conversationGuideSeen: false,
@@ -288,7 +291,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'opencowork-settings',
-      version: 11,
+      version: 12,
       storage: createJSONStorage(() => ipcStorage),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>
@@ -378,6 +381,9 @@ export const useSettingsStore = create<SettingsStore>()(
         if (state.toolResultFormat === undefined) {
           state.toolResultFormat = 'toon'
         }
+        if (state.fileDiffViewMode === undefined) {
+          state.fileDiffViewMode = 'split'
+        }
         if (state.conversationGuideSeen === undefined) {
           state.conversationGuideSeen = false
         }
@@ -407,6 +413,7 @@ export const useSettingsStore = create<SettingsStore>()(
         editorWorkspaceEnabled: state.editorWorkspaceEnabled,
         editorRemoteLanguageServiceEnabled: state.editorRemoteLanguageServiceEnabled,
         toolResultFormat: state.toolResultFormat,
+        fileDiffViewMode: state.fileDiffViewMode,
         userName: state.userName,
         userAvatar: state.userAvatar,
         conversationGuideSeen: state.conversationGuideSeen,

@@ -214,7 +214,7 @@ function foldContext(lines: DiffLine[], ctx: number = 2): DiffChunk[] {
     } else {
       if (keepRun.length > 0) flushKeep()
       if (chunks.length > 0 && chunks[chunks.length - 1].type === 'lines') {
-        ;(chunks[chunks.length - 1] as { type: 'lines'; lines: DiffLine[] }).lines.push(line)
+        ; (chunks[chunks.length - 1] as { type: 'lines'; lines: DiffLine[] }).lines.push(line)
       } else {
         chunks.push({ type: 'lines', lines: [line] })
       }
@@ -256,6 +256,7 @@ function FileIcon({ name }: { name: string }): React.JSX.Element {
     case 'Delete':
       return <FileX2 className="size-4 text-destructive" />
     case 'Edit':
+    case 'PatchEdit':
       return <FileEdit className="size-4 text-amber-500" />
     default:
       return <FileCode className="size-4 text-muted-foreground" />
@@ -282,6 +283,7 @@ function ChangeStats({
   }, [trackedChange])
   const resolvedEdit = React.useMemo(() => resolveEditPayload(input), [input])
   const resolvedWrite = React.useMemo(() => resolveWritePayload(input), [input])
+  const resolvedPatch = React.useMemo(() => resolvePatchPayload(input), [input])
 
   if (trackedChange) {
     if (trackedChange.op === 'create') {
@@ -329,6 +331,15 @@ function ChangeStats({
         <span className="text-red-400/70">
           -{stats ? stats.deleted : Math.max(0, resolvedEdit.oldChars - resolvedEdit.newChars)}
         </span>
+      </span>
+    )
+  }
+  if (name === 'PatchEdit') {
+    if (!resolvedPatch.preview) return null
+    return (
+      <span className="flex items-center gap-1 text-[10px]">
+        <span className="text-green-400/70">+{resolvedPatch.added}</span>
+        <span className="text-red-400/70">-{resolvedPatch.deleted}</span>
       </span>
     )
   }
@@ -501,6 +512,66 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
   )
 }
 
+function summarizePatch(patch: string): { hunks: number; added: number; deleted: number } {
+  const lines = normalizeLineEndings(patch).split('\n')
+  let hunks = 0
+  let added = 0
+  let deleted = 0
+
+  for (const line of lines) {
+    if (line.startsWith('@@ ')) {
+      hunks += 1
+      continue
+    }
+    if (line.startsWith('+++ ') || line.startsWith('--- ')) continue
+    if (line.startsWith('+')) {
+      added += 1
+      continue
+    }
+    if (line.startsWith('-')) {
+      deleted += 1
+    }
+  }
+
+  return { hunks, added, deleted }
+}
+
+function PendingPatchPreview({ input }: { input: Record<string, unknown> }): React.JSX.Element {
+  const filePath = String(input.file_path ?? input.path ?? '')
+  const patch = typeof input.patch === 'string' ? input.patch : ''
+  const preview = typeof input.patch_preview === 'string' ? input.patch_preview : patch
+  const visiblePatch = patch || preview
+  const truncated = Boolean(input.patch_truncated)
+  const stats = React.useMemo(() => summarizePatch(visiblePatch), [visiblePatch])
+
+  return (
+    <div className="px-3 py-2 space-y-2 text-[11px] text-muted-foreground/70">
+      <div className="flex flex-wrap items-center gap-2">
+        {filePath && (
+          <span
+            className="font-mono text-[10px] text-muted-foreground/50"
+            style={{ fontFamily: MONO_FONT }}
+          >
+            {shortPath(filePath)}
+          </span>
+        )}
+        <span className="text-[10px] text-muted-foreground/50">
+          {stats.hunks} hunks · -{stats.deleted} / +{stats.added} lines
+        </span>
+      </div>
+      {visiblePatch && (
+        <pre
+          className="overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2.5 py-2 text-[11px] text-foreground/75 dark:bg-zinc-950 dark:text-zinc-300/75"
+          style={{ fontFamily: MONO_FONT, maxHeight: '220px' }}
+        >
+          {visiblePatch}
+          {truncated ? '\n…' : ''}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 function PendingWritePreview({
   input,
   isStreaming
@@ -564,6 +635,21 @@ interface ResolvedWritePayload {
   lineTotal: number
 }
 
+interface ResolvedPatchPayload {
+  text: string
+  preview: string
+  truncated: boolean
+  hunks: number
+  added: number
+  deleted: number
+}
+
+interface ResolvedWritePayload {
+  text: string
+  preview: string
+  lineTotal: number
+}
+
 function resolveEditPayload(input: Record<string, unknown>): ResolvedEditPayload {
   const oldText = typeof input.old_string === 'string' ? input.old_string : ''
   const newText = typeof input.new_string === 'string' ? input.new_string : ''
@@ -603,6 +689,22 @@ function resolveWritePayload(input: Record<string, unknown>): ResolvedWritePaylo
           : 0
 
   return { text, preview, lineTotal }
+}
+
+function resolvePatchPayload(input: Record<string, unknown>): ResolvedPatchPayload {
+  const text = typeof input.patch === 'string' ? input.patch : ''
+  const preview = typeof input.patch_preview === 'string' ? input.patch_preview : text
+  const truncated = Boolean(input.patch_truncated)
+  const stats = summarizePatch(text || preview)
+
+  return {
+    text,
+    preview,
+    truncated,
+    hunks: stats.hunks,
+    added: stats.added,
+    deleted: stats.deleted
+  }
 }
 
 function trackedStatusLabel(change: AgentRunFileChange): string {
@@ -664,6 +766,7 @@ export function FileChangeCard({
     trackedChange?.status === 'open' || trackedChange?.status === 'conflicted'
   const resolvedEdit = React.useMemo(() => resolveEditPayload(input), [input])
   const resolvedWrite = React.useMemo(() => resolveWritePayload(input), [input])
+  const resolvedPatch = React.useMemo(() => resolvePatchPayload(input), [input])
   const parsedOutput = outputStr ? decodeStructuredToolResult(outputStr) : null
   const isSuccess = !!(
     parsedOutput &&
@@ -672,7 +775,7 @@ export function FileChangeCard({
   )
   const isOutputError = outputStr
     ? !!(parsedOutput && !Array.isArray(parsedOutput) && typeof parsedOutput.error === 'string') ||
-      (!parsedOutput && outputStr.length > 0)
+    (!parsedOutput && outputStr.length > 0)
     : false
 
   // Determine border color based on status
@@ -774,16 +877,17 @@ export function FileChangeCard({
             transition={{ duration: 0.2 }}
             className="overflow-hidden border-t border-inherit bg-muted/20 dark:bg-zinc-950"
           >
-            {/* Edit: delay diff rendering until the tool settles */}
-            {name === 'Edit' && trackedChange && (
+            {/* Edit / PatchEdit: delay diff rendering until the tool settles */}
+            {(name === 'Edit' || name === 'PatchEdit') && trackedChange && (
               <InlineDiff
                 oldStr={trackedChange.before.text ?? ''}
                 newStr={trackedChange.after.text ?? ''}
               />
             )}
-            {name === 'Edit' && !trackedChange && status !== 'completed' && status !== 'error' && (
-              <PendingEditPreview input={input} />
-            )}
+            {name === 'Edit' &&
+              !trackedChange &&
+              status !== 'completed' &&
+              status !== 'error' && <PendingEditPreview input={input} />}
             {name === 'Edit' &&
               !trackedChange &&
               status !== 'streaming' &&
@@ -800,6 +904,9 @@ export function FileChangeCard({
               (resolvedEdit.oldTruncated || resolvedEdit.newTruncated) && (
                 <PendingEditPreview input={input} />
               )}
+            {name === 'PatchEdit' && !trackedChange && !!resolvedPatch.preview && (
+              <PendingPatchPreview input={input} />
+            )}
 
             {/* Write: new file content or overwrite diff */}
             {name === 'Write' && trackedChange?.op === 'modify' && (

@@ -93,6 +93,7 @@ export const IPC = {
   PLUGIN_SESSIONS_FIND_BY_CHAT: 'plugin:sessions:find-by-chat',
   PLUGIN_STREAM_START: 'plugin:stream:start',
   PLUGIN_STREAM_UPDATE: 'plugin:stream:update',
+  PLUGIN_STREAM_APPEND: 'plugin:stream:append',
   PLUGIN_STREAM_FINISH: 'plugin:stream:finish',
 
   // Weixin-specific

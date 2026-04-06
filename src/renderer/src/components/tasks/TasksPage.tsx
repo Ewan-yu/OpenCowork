@@ -29,8 +29,7 @@ import { Separator } from '@renderer/components/ui/separator'
 import { cn } from '@renderer/lib/utils'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
-import { cronEvents } from '@renderer/lib/tools/cron-events'
-import { useChatStore, type Session } from '@renderer/stores/chat-store'
+import { useChatStore } from '@renderer/stores/chat-store'
 import {
   useCronStore,
   type CronJobEntry,
@@ -94,6 +93,75 @@ interface JobEditorFormState {
   deliveryTarget: string
   deleteAfterRun: boolean
   maxIterations: string
+}
+
+interface TaskPageSessionSummary {
+  id: string
+  title: string
+  projectId?: string
+  workingFolder?: string
+  providerId?: string
+  modelId?: string
+}
+
+const taskPageSessionSummaryCache = new Map<string, TaskPageSessionSummary>()
+let lastTaskPageSessionSummaries: TaskPageSessionSummary[] = []
+
+function selectTaskPageSessionSummaries(state: {
+  sessions: Array<{
+    id: string
+    title: string
+    projectId?: string
+    workingFolder?: string
+    providerId?: string
+    modelId?: string
+  }>
+}): TaskPageSessionSummary[] {
+  const nextIds = new Set(state.sessions.map((session) => session.id))
+  for (const id of taskPageSessionSummaryCache.keys()) {
+    if (!nextIds.has(id)) {
+      taskPageSessionSummaryCache.delete(id)
+    }
+  }
+
+  let changed = state.sessions.length !== lastTaskPageSessionSummaries.length
+  const next = state.sessions.map((session, index) => {
+    const cached = taskPageSessionSummaryCache.get(session.id)
+    if (
+      cached &&
+      cached.title === session.title &&
+      cached.projectId === session.projectId &&
+      cached.workingFolder === session.workingFolder &&
+      cached.providerId === session.providerId &&
+      cached.modelId === session.modelId
+    ) {
+      if (!changed && lastTaskPageSessionSummaries[index] !== cached) {
+        changed = true
+      }
+      return cached
+    }
+
+    const summary: TaskPageSessionSummary = {
+      id: session.id,
+      title: session.title,
+      projectId: session.projectId,
+      workingFolder: session.workingFolder,
+      providerId: session.providerId,
+      modelId: session.modelId
+    }
+    taskPageSessionSummaryCache.set(session.id, summary)
+    if (!changed && lastTaskPageSessionSummaries[index] !== summary) {
+      changed = true
+    }
+    return summary
+  })
+
+  if (!changed) {
+    return lastTaskPageSessionSummaries
+  }
+
+  lastTaskPageSessionSummaries = next
+  return next
 }
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']
@@ -220,10 +288,10 @@ function getStatusClass(status: string | null, job?: CronJobEntry | null): strin
 
 function getSourceSessionMeta(
   item: TimelineItem,
-  sessions: Session[]
+  sessionSummaryById: Map<string, TaskPageSessionSummary>
 ): { title: string; model: string | null; workingFolder: string | null } {
   const session = item.sourceSessionId
-    ? sessions.find((entry) => entry.id === item.sourceSessionId)
+    ? sessionSummaryById.get(item.sourceSessionId)
     : null
   return {
     title: item.sourceSessionTitle ?? session?.title ?? '未知会话',
@@ -237,7 +305,7 @@ export function TasksPage(): React.JSX.Element {
   const runs = useCronStore((state) => state.runs)
   const loadJobs = useCronStore((state) => state.loadJobs)
   const loadRuns = useCronStore((state) => state.loadRuns)
-  const sessions = useChatStore((state) => state.sessions)
+  const sessionSummaries = useChatStore(selectTaskPageSessionSummaries)
   const projects = useChatStore((state) => state.projects)
 
   const [selectedDateKey, setSelectedDateKey] = React.useState(() => dateKeyFromDate(new Date()))
@@ -277,6 +345,13 @@ export function TasksPage(): React.JSX.Element {
     () => getCalendarDays(calendarCursor.year, calendarCursor.month),
     [calendarCursor.month, calendarCursor.year]
   )
+  const sessionSummaryById = React.useMemo(() => {
+    const map = new Map<string, TaskPageSessionSummary>()
+    for (const session of sessionSummaries) {
+      map.set(session.id, session)
+    }
+    return map
+  }, [sessionSummaries])
 
   const refreshAll = React.useCallback(async (): Promise<void> => {
     await Promise.all([loadJobs(), loadRuns()])
@@ -284,14 +359,6 @@ export function TasksPage(): React.JSX.Element {
 
   React.useEffect(() => {
     void refreshAll()
-  }, [refreshAll])
-
-  React.useEffect(() => {
-    return cronEvents.on((event) => {
-      if (event.type === 'run_finished' || event.type === 'job_removed' || event.type === 'fired') {
-        void refreshAll()
-      }
-    })
   }, [refreshAll])
 
   const timelineItems = React.useMemo(() => {
@@ -511,7 +578,7 @@ export function TasksPage(): React.JSX.Element {
 
   const handleSessionPreset = React.useCallback(
     (sessionId: string) => {
-      const session = sessions.find((entry) => entry.id === sessionId)
+      const session = sessionSummaryById.get(sessionId)
       setEditorForm((state) => ({
         ...state,
         sessionId,
@@ -519,7 +586,7 @@ export function TasksPage(): React.JSX.Element {
         workingFolder: session?.workingFolder ?? state.workingFolder
       }))
     },
-    [sessions]
+    [sessionSummaryById]
   )
 
   const handleSubmit = React.useCallback(async () => {
@@ -528,7 +595,7 @@ export function TasksPage(): React.JSX.Element {
       return
     }
 
-    const session = sessions.find((entry) => entry.id === editorForm.sessionId)
+    const session = sessionSummaryById.get(editorForm.sessionId)
     const project = session?.projectId
       ? projects.find((entry) => entry.id === session.projectId)
       : null
@@ -556,9 +623,9 @@ export function TasksPage(): React.JSX.Element {
         editorMode === 'create'
           ? await ipcClient.invoke(IPC.CRON_ADD, payload)
           : await ipcClient.invoke(IPC.CRON_UPDATE, {
-              jobId: editorForm.id,
-              patch: payload
-            })
+            jobId: editorForm.id,
+            patch: payload
+          })
 
       if (result && typeof result === 'object' && 'error' in (result as Record<string, unknown>)) {
         toast.error(String((result as { error: string }).error))
@@ -574,7 +641,7 @@ export function TasksPage(): React.JSX.Element {
     } finally {
       setSubmitting(false)
     }
-  }, [editorForm, editorMode, projects, refreshAll, sessions])
+  }, [editorForm, editorMode, projects, refreshAll, sessionSummaryById])
 
   const handleRunNow = React.useCallback(
     async (jobId: string) => {
@@ -618,7 +685,7 @@ export function TasksPage(): React.JSX.Element {
   )
 
   const selectedJob = selectedItem?.job ?? null
-  const selectedMeta = selectedItem ? getSourceSessionMeta(selectedItem, sessions) : null
+  const selectedMeta = selectedItem ? getSourceSessionMeta(selectedItem, sessionSummaryById) : null
   const selectedStatus = selectedItem ? getLatestRunStatus(selectedItem) : null
   const monthTitle = `${calendarCursor.year}年 ${calendarCursor.month + 1}月`
   const todayKey = dateKeyFromDate(new Date())
@@ -717,7 +784,7 @@ export function TasksPage(): React.JSX.Element {
                 onChange={(event) => setSessionFilter(event.target.value)}
               >
                 <option value="all">全部会话</option>
-                {sessions.map((session) => (
+                {sessionSummaries.map((session) => (
                   <option key={session.id} value={session.id}>
                     {session.title}
                   </option>
@@ -740,7 +807,7 @@ export function TasksPage(): React.JSX.Element {
             ) : (
               <div className="space-y-2">
                 {filteredTimelineItems.map((item) => {
-                  const meta = getSourceSessionMeta(item, sessions)
+                  const meta = getSourceSessionMeta(item, sessionSummaryById)
                   const status = getLatestRunStatus(item)
                   return (
                     <button
@@ -1105,7 +1172,7 @@ export function TasksPage(): React.JSX.Element {
                   onChange={(event) => handleSessionPreset(event.target.value)}
                 >
                   <option value="">不绑定会话</option>
-                  {sessions.map((session) => (
+                  {sessionSummaries.map((session) => (
                     <option key={session.id} value={session.id}>
                       {session.title}
                     </option>

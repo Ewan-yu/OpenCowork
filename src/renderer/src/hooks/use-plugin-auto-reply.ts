@@ -593,13 +593,45 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   let fullText = ''
   let lastError: string | null = null
   let pendingText = ''
-  let pendingPluginContent = ''
+  let pendingPluginDelta = ''
+  let pluginStreamUpdateInFlight: Promise<unknown> | null = null
+  let pendingPluginStreamFlush = false
   const pendingToolInputs = new Map<string, Record<string, unknown>>()
   let streamFlushTimer: ReturnType<typeof setTimeout> | null = null
   const toolInputThrottle = new Map<
     string,
     { lastFlush: number; pending?: Record<string, unknown>; timer?: ReturnType<typeof setTimeout> }
   >()
+
+  const flushPluginStreamUpdate = (): void => {
+    if (!streamingActive) return
+    if (pluginStreamUpdateInFlight) {
+      pendingPluginStreamFlush = true
+      return
+    }
+    if (!pendingPluginDelta) return
+
+    const delta = pendingPluginDelta
+    pendingPluginDelta = ''
+    pluginStreamUpdateInFlight = ipcClient
+      .invoke(IPC.PLUGIN_STREAM_APPEND, {
+        pluginId,
+        chatId,
+        delta
+      })
+      .catch(() => {
+        pendingPluginDelta = `${delta}${pendingPluginDelta}`
+      })
+      .finally(() => {
+        pluginStreamUpdateInFlight = null
+        if (pendingPluginStreamFlush || pendingPluginDelta) {
+          pendingPluginStreamFlush = false
+          queueMicrotask(() => {
+            flushPluginStreamUpdate()
+          })
+        }
+      })
+  }
 
   const flushStreamingState = (): void => {
     if (streamFlushTimer) {
@@ -618,16 +650,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       }
       pendingToolInputs.clear()
     }
-    if (streamingActive && pendingPluginContent !== fullText) {
-      pendingPluginContent = fullText
-      ipcClient
-        .invoke('plugin:stream:update', {
-          pluginId,
-          chatId,
-          content: pendingPluginContent
-        })
-        .catch(() => {})
-    }
+    flushPluginStreamUpdate()
   }
 
   const scheduleStreamingFlush = (): void => {
@@ -693,6 +716,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       case 'text_delta':
         fullText += event.text
         pendingText += event.text
+        pendingPluginDelta += event.text
         scheduleStreamingFlush()
         break
 
@@ -836,6 +860,10 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   // Finish CardKit card
   if (streamingActive) {
     try {
+      const pendingPluginUpdate = pluginStreamUpdateInFlight
+      if (pendingPluginUpdate) {
+        await pendingPluginUpdate
+      }
       await ipcClient.invoke('plugin:stream:finish', {
         pluginId,
         chatId,

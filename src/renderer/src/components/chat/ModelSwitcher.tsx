@@ -450,6 +450,50 @@ export function ModelSwitcher(): React.JSX.Element {
     return `${Math.round(value)}%`
   }
 
+  const formatResetAt = (value?: string): string => {
+    if (!value) return ''
+    const trimmed = value.trim()
+    if (!trimmed) return ''
+    if (['invalid date', 'null', 'undefined', 'nan'].includes(trimmed.toLowerCase())) return ''
+
+    const tryParse = (input: string | number): Date | null => {
+      const candidate = new Date(input)
+      return Number.isNaN(candidate.getTime()) ? null : candidate
+    }
+
+    let parsed: Date | null = null
+
+    if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      const numericValue = Number(trimmed)
+      if (Number.isFinite(numericValue)) {
+        const timestamp = numericValue < 1e12 ? numericValue * 1000 : numericValue
+        parsed = tryParse(timestamp)
+      }
+    }
+
+    if (!parsed) {
+      const normalized = trimmed
+        .replace(/\[(?:[^\]]+)\]$/, '')
+        .replace(
+          /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)$/,
+          '$1T$2'
+        )
+        .replace(/(\.\d{3})\d+(?=(?:Z|[+-]\d{2}:?\d{2})$)/i, '$1')
+        .replace(/ UTC$/i, 'Z')
+
+      parsed = tryParse(trimmed) ?? (normalized !== trimmed ? tryParse(normalized) : null)
+    }
+
+    if (!parsed) return ''
+
+    return parsed.toLocaleString([], {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
   const groups = useMemo<ProviderGroup[]>(() => {
     const q = search.toLowerCase().trim()
     return enabledProviders
@@ -713,14 +757,7 @@ export function ModelSwitcher(): React.JSX.Element {
                   {formatPercent(codexQuota.primary?.usedPercent)}
                 </span>
                 <span className="text-[10px] text-muted-foreground">
-                  {codexQuota.primary?.resetAt
-                    ? new Date(codexQuota.primary.resetAt).toLocaleString([], {
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })
-                    : ''}
+                  {formatResetAt(codexQuota.primary?.resetAt)}
                 </span>
               </div>
               <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">

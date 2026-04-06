@@ -89,8 +89,10 @@ interface CronStore {
   addJob: (job: CronJobEntry) => void
   removeJob: (id: string) => void
   updateJob: (id: string, patch: Partial<CronJobEntry>) => void
+  upsertJob: (job: CronJobEntry) => void
   recordRun: (run: CronRunEntry) => void
   appendAgentLog: (entry: CronAgentLogEntry) => void
+  appendAgentLogs: (entries: CronAgentLogEntry[]) => void
   clearAgentLogs: (jobId: string) => void
   setExecutionStarted: (jobId: string) => void
   updateExecutionProgress: (
@@ -137,6 +139,17 @@ export const useCronStore = create<CronStore>((set) => ({
 
   removeJob: (id) => set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) })),
 
+  upsertJob: (job) =>
+    set((s) => {
+      const existingIndex = s.jobs.findIndex((entry) => entry.id === job.id)
+      if (existingIndex < 0) {
+        return { jobs: [job, ...s.jobs] }
+      }
+      const jobs = s.jobs.slice()
+      jobs[existingIndex] = { ...jobs[existingIndex], ...job }
+      return { jobs }
+    }),
+
   updateJob: (id, patch) =>
     set((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)) })),
 
@@ -154,6 +167,31 @@ export const useCronStore = create<CronStore>((set) => ({
           [entry.jobId]: [...prev, entry].slice(-MAX_AGENT_LOG_ENTRIES)
         }
       }
+    }),
+
+  appendAgentLogs: (entries) =>
+    set((s) => {
+      if (entries.length === 0) {
+        return { agentLogs: s.agentLogs }
+      }
+
+      const nextAgentLogs = { ...s.agentLogs }
+      const grouped = new Map<string, CronAgentLogEntry[]>()
+      for (const entry of entries) {
+        const bucket = grouped.get(entry.jobId)
+        if (bucket) {
+          bucket.push(entry)
+        } else {
+          grouped.set(entry.jobId, [entry])
+        }
+      }
+
+      for (const [jobId, group] of grouped) {
+        const prev = nextAgentLogs[jobId] ?? []
+        nextAgentLogs[jobId] = [...prev, ...group].slice(-MAX_AGENT_LOG_ENTRIES)
+      }
+
+      return { agentLogs: nextAgentLogs }
     }),
 
   clearAgentLogs: (jobId) =>

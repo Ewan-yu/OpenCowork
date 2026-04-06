@@ -629,6 +629,7 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
     string,
     import('../channels/channel-types').ChannelStreamingHandle
   >()
+  const streamContents = new Map<string, string>()
 
   /**
    * Start a streaming message for a plugin chat.
@@ -654,6 +655,7 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
         )
         const key = `${args.pluginId}:${args.chatId}`
         streamHandles.set(key, handle)
+        streamContents.set(key, args.initialContent ?? '')
         console.log(`[PluginStream] Started streaming for ${key}`)
         return { ok: true, supportsStreaming: true }
       } catch (err) {
@@ -1226,10 +1228,31 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
       if (!handle) return { ok: false }
 
       try {
+        streamContents.set(key, args.content)
         await handle.update(args.content)
         return { ok: true }
       } catch (err) {
         console.warn(`[PluginStream] Update failed for ${key}:`, err)
+        return { ok: false }
+      }
+    }
+  )
+
+  /** Append a streaming delta and forward the accumulated content to providers */
+  ipcMain.handle(
+    'plugin:stream:append',
+    async (_event, args: { pluginId: string; chatId: string; delta: string }) => {
+      const key = `${args.pluginId}:${args.chatId}`
+      const handle = streamHandles.get(key)
+      if (!handle) return { ok: false }
+
+      try {
+        const nextContent = `${streamContents.get(key) ?? ''}${args.delta ?? ''}`
+        streamContents.set(key, nextContent)
+        await handle.update(nextContent)
+        return { ok: true }
+      } catch (err) {
+        console.warn(`[PluginStream] Append failed for ${key}:`, err)
         return { ok: false }
       }
     }
@@ -1244,13 +1267,16 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
       if (!handle) return { ok: false }
 
       try {
+        streamContents.set(key, args.content)
         await handle.finish(args.content)
         streamHandles.delete(key)
+        streamContents.delete(key)
         console.log(`[PluginStream] Finished streaming for ${key}`)
         return { ok: true }
       } catch (err) {
         console.error(`[PluginStream] Finish failed for ${key}:`, err)
         streamHandles.delete(key)
+        streamContents.delete(key)
         return { ok: false }
       }
     }

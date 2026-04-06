@@ -277,6 +277,19 @@ interface ExecutionState {
   progress: { iteration: number; toolCalls: number; currentStep?: string } | null
 }
 
+interface CronRunFinishedPayload {
+  jobId: string
+  runId: string
+  status: 'success' | 'error' | 'aborted'
+  toolCallCount: number
+  jobName?: string
+  sessionId?: string | null
+  deliveryMode?: string
+  deliveryTarget?: string | null
+  outputSummary?: string
+  error?: string
+}
+
 const activeRuns = new Map<string, AbortController>()
 const executionState = new Map<string, ExecutionState>()
 
@@ -720,42 +733,28 @@ function normalizeMessagesForReplay(messages: UnifiedMessage[]): UnifiedMessage[
       continue
     }
     const blocks = message.content as ContentBlock[]
-    const toolUseIds = blocks
-      .filter((block): block is ToolUseBlock => block.type === 'tool_use')
-      .map((block) => block.id)
-    let nextBlocks = blocks
-    if (toolUseIds.length > 0) {
+    const replayableToolUseIds = new Set(
+      blocks.filter((block): block is ToolUseBlock => block.type === 'tool_use').map((block) => block.id)
+    )
+    const pairedToolUseIds = new Set<string>()
+    if (replayableToolUseIds.size > 0) {
       const nextMessage = messages[index + 1]
-      const hasImmediateToolResultMessage =
-        nextMessage?.role === 'user' &&
-        Array.isArray(nextMessage.content) &&
-        toolUseIds.every((toolUseId) =>
-          (nextMessage.content as ContentBlock[]).some(
-            (block) => block.type === 'tool_result' && block.toolUseId === toolUseId
-          )
-        )
-      if (hasImmediateToolResultMessage) {
-        for (const toolUseId of toolUseIds) validToolUseIds.add(toolUseId)
-      } else {
-        nextBlocks = nextBlocks.map((block) => {
-          if (block.type !== 'tool_use' || !toolUseIds.includes(block.id)) return block
-          return {
-            type: 'text' as const,
-            text: `[Previous tool call omitted for replay] ${block.name} ${JSON.stringify(block.input).slice(0, 200)}`
-          }
-        })
+      if (nextMessage?.role === 'user' && Array.isArray(nextMessage.content)) {
+        for (const block of nextMessage.content as ContentBlock[]) {
+          if (block.type !== 'tool_result' || !replayableToolUseIds.has(block.toolUseId)) continue
+          pairedToolUseIds.add(block.toolUseId)
+          validToolUseIds.add(block.toolUseId)
+        }
       }
     }
-    const sanitizedBlocks = nextBlocks.map((block) => {
-      if (block.type !== 'tool_result') return block
-      if (validToolUseIds.has(block.toolUseId)) return block
-      const content =
-        typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
-      return {
-        type: 'text' as const,
-        text: `[Previous tool result omitted for replay] ${content.slice(0, 300)}`
+    const sanitizedBlocks = blocks.filter((block) => {
+      if (block.type === 'tool_use') {
+        return pairedToolUseIds.has(block.id)
       }
+      if (block.type !== 'tool_result') return true
+      return validToolUseIds.has(block.toolUseId)
     })
+    if (sanitizedBlocks.length === 0) continue
     normalized.push({ ...message, content: sanitizedBlocks })
   }
   return normalized
@@ -2141,6 +2140,367 @@ function resolveToolPath(inputPath: unknown, workingFolder?: string): string {
   return raw
 }
 
+type EolStyle = '\n' | '\r\n' | null
+type EditMatchMode = 'exact' | 'line_endings' | 'trailing_whitespace' | 'indentation' | 'mixed'
+
+type EditLineBlockMatch = {
+  startLine: number
+  endLine: number
+  commonIndent: string
+}
+
+type ParsedPatchHunk = {
+  oldStart: number
+  oldCount: number
+  newStart: number
+  newCount: number
+  oldLines: string[]
+  newLines: string[]
+}
+
+function detectEolStyle(str: string): EolStyle {
+  if (str.includes('\r\n')) return '\r\n'
+  if (str.includes('\n')) return '\n'
+  return null
+}
+
+function normalizeToLf(str: string): string {
+  return str.replace(/\r\n/g, '\n')
+}
+
+function applyEolStyle(str: string, style: EolStyle): string {
+  if (!style) return str
+  const normalized = normalizeToLf(str)
+  return style === '\n' ? normalized : normalized.replace(/\n/g, '\r\n')
+}
+
+function splitLfLines(str: string): string[] {
+  return normalizeToLf(str).split('\n')
+}
+
+function trimLineTrailingWhitespace(line: string): string {
+  return line.replace(/[ \t]+$/g, '')
+}
+
+function getLeadingWhitespace(line: string): string {
+  const match = line.match(/^[\t ]*/)
+  return match ? match[0] : ''
+}
+
+function getCommonIndent(lines: string[]): string {
+  let commonIndent: string | null = null
+  for (const line of lines) {
+    if (line.trim().length === 0) continue
+    const indent = getLeadingWhitespace(line)
+    if (commonIndent === null) {
+      commonIndent = indent
+      continue
+    }
+    let sharedLength = 0
+    const limit = Math.min(commonIndent.length, indent.length)
+    while (sharedLength < limit && commonIndent[sharedLength] === indent[sharedLength]) {
+      sharedLength += 1
+    }
+    commonIndent = commonIndent.slice(0, sharedLength)
+    if (!commonIndent) break
+  }
+  return commonIndent ?? ''
+}
+
+function stripCommonIndent(lines: string[]): string[] {
+  const commonIndent = getCommonIndent(lines)
+  if (!commonIndent) return [...lines]
+  return lines.map((line) =>
+    line.startsWith(commonIndent) ? line.slice(commonIndent.length) : line
+  )
+}
+
+function applyCommonIndent(lines: string[], indent: string): string[] {
+  if (!indent) return [...lines]
+  return lines.map((line) => (line.length > 0 ? `${indent}${line}` : line))
+}
+
+function buildOldStringVariants(
+  oldStr: string,
+  fileContent: string
+): Array<{ text: string; eol: EolStyle }> {
+  const variants: Array<{ text: string; eol: EolStyle }> = [
+    { text: oldStr, eol: detectEolStyle(oldStr) }
+  ]
+  const fileHasCrlf = fileContent.includes('\r\n')
+  const fileHasOnlyLf = !fileHasCrlf
+
+  if (oldStr.includes('\n') && !oldStr.includes('\r') && fileHasCrlf) {
+    variants.push({ text: oldStr.replace(/\n/g, '\r\n'), eol: '\r\n' })
+  } else if (oldStr.includes('\r\n') && fileHasOnlyLf) {
+    variants.push({ text: oldStr.replace(/\r\n/g, '\n'), eol: '\n' })
+  }
+
+  return variants
+}
+
+function countOccurrences(content: string, value: string): number {
+  if (!value) return 0
+  return content.split(value).length - 1
+}
+
+function findNormalizedLineBlockMatches(
+  content: string,
+  oldStr: string,
+  mode: 'trailing_whitespace' | 'indentation'
+): EditLineBlockMatch[] {
+  const contentLines = splitLfLines(content)
+  const oldLines = splitLfLines(oldStr)
+  if (oldLines.length === 0 || contentLines.length < oldLines.length) return []
+
+  const normalizedOldLines =
+    mode === 'indentation'
+      ? stripCommonIndent(oldLines).map(trimLineTrailingWhitespace)
+      : oldLines.map(trimLineTrailingWhitespace)
+
+  const matches: EditLineBlockMatch[] = []
+  for (let startLine = 0; startLine <= contentLines.length - oldLines.length; startLine += 1) {
+    const slice = contentLines.slice(startLine, startLine + oldLines.length)
+    const normalizedSlice =
+      mode === 'indentation'
+        ? stripCommonIndent(slice).map(trimLineTrailingWhitespace)
+        : slice.map(trimLineTrailingWhitespace)
+
+    if (normalizedSlice.every((line, index) => line === normalizedOldLines[index])) {
+      matches.push({
+        startLine,
+        endLine: startLine + oldLines.length - 1,
+        commonIndent: getCommonIndent(slice)
+      })
+    }
+  }
+
+  return matches
+}
+
+function selectNonOverlappingLineMatches(matches: EditLineBlockMatch[]): EditLineBlockMatch[] {
+  const selected: EditLineBlockMatch[] = []
+  let lastEndLine = -1
+
+  for (const match of matches) {
+    if (match.startLine <= lastEndLine) continue
+    selected.push(match)
+    lastEndLine = match.endLine
+  }
+
+  return selected
+}
+
+function applyNormalizedLineBlockMatches(
+  content: string,
+  newStr: string,
+  matches: EditLineBlockMatch[],
+  mode: 'trailing_whitespace' | 'indentation'
+): string {
+  const contentLines = splitLfLines(content)
+  const newLines = splitLfLines(newStr)
+  const baseReplacementLines = mode === 'indentation' ? stripCommonIndent(newLines) : [...newLines]
+  const eol = detectEolStyle(content) ?? detectEolStyle(newStr) ?? '\n'
+  const result: string[] = []
+  let cursor = 0
+
+  for (const match of matches) {
+    result.push(...contentLines.slice(cursor, match.startLine))
+    const replacementLines =
+      mode === 'indentation'
+        ? applyCommonIndent(baseReplacementLines, match.commonIndent)
+        : baseReplacementLines
+    result.push(...replacementLines)
+    cursor = match.endLine + 1
+  }
+
+  result.push(...contentLines.slice(cursor))
+  return applyEolStyle(result.join('\n'), eol)
+}
+
+function buildEditNotFoundMessage(content: string, oldStr: string): string {
+  const normalizedContent = normalizeToLf(content)
+  const normalizedOld = normalizeToLf(oldStr)
+
+  if (normalizedContent.includes(normalizedOld)) {
+    return 'old_string not found in file (line endings differ; use the exact text from Read output)'
+  }
+
+  const trailingWhitespaceMatches = findNormalizedLineBlockMatches(
+    content,
+    oldStr,
+    'trailing_whitespace'
+  )
+  if (trailingWhitespaceMatches.length === 1) {
+    return `old_string not found in file (trailing whitespace differs near line ${trailingWhitespaceMatches[0].startLine + 1}; use the exact text from Read output)`
+  }
+  if (trailingWhitespaceMatches.length > 1) {
+    return `old_string not found in file (multiple matches found after trailing whitespace normalization: ${trailingWhitespaceMatches.length}; provide more surrounding context)`
+  }
+
+  const indentationMatches = findNormalizedLineBlockMatches(content, oldStr, 'indentation')
+  if (indentationMatches.length === 1) {
+    return `old_string not found in file (indentation differs near line ${indentationMatches[0].startLine + 1}; use the exact text from Read output)`
+  }
+  if (indentationMatches.length > 1) {
+    return `old_string not found in file (multiple matches found after indentation normalization: ${indentationMatches.length}; provide more surrounding context)`
+  }
+
+  const probeLine = normalizedOld
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+
+  if (probeLine) {
+    const lines = normalizedContent.split('\n')
+    const index = lines.findIndex((line) => line.includes(probeLine))
+    if (index >= 0) {
+      return `old_string not found in file (closest match near line ${index + 1}; ensure indentation and context match Read output exactly)`
+    }
+  }
+
+  return 'old_string not found in file'
+}
+
+function stripPatchHeader(diff: string): string[] {
+  return normalizeToLf(diff)
+    .split('\n')
+    .filter((line) => !line.startsWith('diff --git ') && !line.startsWith('index '))
+}
+
+function parseUnifiedDiff(diff: string): ParsedPatchHunk[] {
+  const lines = stripPatchHeader(diff)
+  const hunks: ParsedPatchHunk[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const line = lines[index]
+    if (line.startsWith('--- ') || line.startsWith('+++ ')) {
+      index += 1
+      continue
+    }
+
+    const headerMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
+    if (!headerMatch) {
+      index += 1
+      continue
+    }
+
+    const hunk: ParsedPatchHunk = {
+      oldStart: Number(headerMatch[1]),
+      oldCount: Number(headerMatch[2] ?? 1),
+      newStart: Number(headerMatch[3]),
+      newCount: Number(headerMatch[4] ?? 1),
+      oldLines: [],
+      newLines: []
+    }
+    index += 1
+
+    while (index < lines.length) {
+      const current = lines[index]
+      if (current.startsWith('@@ ')) break
+      if (current.startsWith('--- ') || current.startsWith('+++ ')) break
+      if (current === '\\ No newline at end of file') {
+        index += 1
+        continue
+      }
+      if (current.length === 0) {
+        hunk.oldLines.push('')
+        hunk.newLines.push('')
+        index += 1
+        continue
+      }
+
+      const marker = current[0]
+      const text = current.slice(1)
+      if (marker === ' ' || marker === '-') {
+        hunk.oldLines.push(text)
+      }
+      if (marker === ' ' || marker === '+') {
+        hunk.newLines.push(text)
+      }
+      if (![' ', '+', '-'].includes(marker)) {
+        throw new Error(`Invalid unified diff line: ${current}`)
+      }
+      index += 1
+    }
+
+    hunks.push(hunk)
+  }
+
+  if (hunks.length === 0) {
+    throw new Error('patch must contain at least one unified diff hunk')
+  }
+
+  return hunks
+}
+
+function applyPatchEdit(
+  content: string,
+  patch: string
+): {
+  updated: string
+  matchMode: EditMatchMode
+  hunkCount: number
+} {
+  const hunks = parseUnifiedDiff(patch)
+  const contentLines = splitLfLines(content)
+  const eol = detectEolStyle(content) ?? '\n'
+  const result: string[] = []
+  let cursor = 0
+  let matchMode: EditMatchMode = 'exact'
+
+  for (const hunk of hunks) {
+    const oldExact = hunk.oldLines.join('\n')
+    const oldNormalized = oldExact
+      .split('\n')
+      .map(trimLineTrailingWhitespace)
+      .join('\n')
+    const expectedIndex = Math.max(0, hunk.oldStart - 1)
+    let matchedIndex = -1
+    let currentMode: EditMatchMode = 'exact'
+
+    for (let start = cursor; start <= contentLines.length - hunk.oldLines.length; start += 1) {
+      const slice = contentLines.slice(start, start + hunk.oldLines.length)
+      const exact = slice.every((line, lineIndex) => line === hunk.oldLines[lineIndex])
+      if (exact) {
+        matchedIndex = start
+        currentMode = start === expectedIndex ? 'exact' : 'mixed'
+        break
+      }
+
+      const normalized = slice.map(trimLineTrailingWhitespace).join('\n')
+      if (normalized === oldNormalized) {
+        matchedIndex = start
+        currentMode = 'trailing_whitespace'
+        break
+      }
+    }
+
+    if (matchedIndex < 0) {
+      throw new Error(
+        `patch hunk not found in file near line ${hunk.oldStart}; ensure unified diff context matches current file contents`
+      )
+    }
+
+    result.push(...contentLines.slice(cursor, matchedIndex))
+    result.push(...hunk.newLines)
+    cursor = matchedIndex + hunk.oldLines.length
+    if (matchMode === 'exact') {
+      matchMode = currentMode
+    } else if (matchMode !== currentMode) {
+      matchMode = 'mixed'
+    }
+  }
+
+  result.push(...contentLines.slice(cursor))
+  return {
+    updated: applyEolStyle(result.join('\n'), eol),
+    matchMode,
+    hunkCount: hunks.length
+  }
+}
+
 function buildToolHandlers(): Record<string, ToolHandler> {
   const readHandler: ToolHandler = {
     definition: {
@@ -2227,14 +2587,122 @@ function buildToolHandlers(): Record<string, ToolHandler> {
       if (!oldStr) {
         return encodeToolError('old_string is required')
       }
-      if (!content.includes(oldStr)) {
-        return encodeToolError('old_string not found in file')
+      if (oldStr === newStr) {
+        return encodeToolError('new_string must be different from old_string')
       }
-      const updated = replaceAll
-        ? content.split(oldStr).join(newStr)
-        : content.replace(oldStr, newStr)
+
+      const oldStringVariants = buildOldStringVariants(oldStr, content)
+      const exactVariant = oldStringVariants.find(
+        (variant) => variant.text.length > 0 && content.includes(variant.text)
+      )
+
+      let updated: string | null = null
+      let matchMode: EditMatchMode | null = null
+
+      if (exactVariant) {
+        const replacementText = applyEolStyle(newStr, exactVariant.eol)
+        const occurrences = countOccurrences(content, exactVariant.text)
+        if (!replaceAll && occurrences > 1) {
+          return encodeToolError('old_string is not unique in file')
+        }
+        updated = replaceAll
+          ? content.split(exactVariant.text).join(replacementText)
+          : content.replace(exactVariant.text, replacementText)
+        matchMode = exactVariant.text === oldStr ? 'exact' : 'line_endings'
+      } else {
+        const trailingWhitespaceMatches = findNormalizedLineBlockMatches(
+          content,
+          oldStr,
+          'trailing_whitespace'
+        )
+        if (trailingWhitespaceMatches.length > 0) {
+          const selectedMatches = replaceAll
+            ? selectNonOverlappingLineMatches(trailingWhitespaceMatches)
+            : trailingWhitespaceMatches
+          if (!replaceAll && trailingWhitespaceMatches.length > 1) {
+            return encodeToolError(
+              `old_string is not unique in file (multiple matches found after trailing whitespace normalization: ${trailingWhitespaceMatches.length})`
+            )
+          }
+          updated = applyNormalizedLineBlockMatches(
+            content,
+            newStr,
+            selectedMatches,
+            'trailing_whitespace'
+          )
+          matchMode = 'trailing_whitespace'
+        } else {
+          const indentationMatches = findNormalizedLineBlockMatches(content, oldStr, 'indentation')
+          if (indentationMatches.length > 0) {
+            const selectedMatches = replaceAll
+              ? selectNonOverlappingLineMatches(indentationMatches)
+              : indentationMatches
+            if (!replaceAll && indentationMatches.length > 1) {
+              return encodeToolError(
+                `old_string is not unique in file (multiple matches found after indentation normalization: ${indentationMatches.length})`
+              )
+            }
+            updated = applyNormalizedLineBlockMatches(
+              content,
+              newStr,
+              selectedMatches,
+              'indentation'
+            )
+            matchMode = 'indentation'
+          }
+        }
+      }
+
+      if (!updated || !matchMode) {
+        return encodeToolError(buildEditNotFoundMessage(content, oldStr))
+      }
+
       await fs.promises.writeFile(resolvedPath, updated, 'utf8')
-      return encodeStructuredToolResult({ success: true, path: resolvedPath })
+      return encodeStructuredToolResult({
+        success: true,
+        path: resolvedPath,
+        replaceAll,
+        matchMode
+      })
+    }
+  }
+
+  const patchEditHandler: ToolHandler = {
+    definition: {
+      name: 'PatchEdit',
+      description: 'Apply a unified diff patch to an existing file.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file_path: {
+            type: 'string',
+            description: 'Absolute path or relative to the working folder'
+          },
+          patch: { type: 'string', description: 'Unified diff patch content for a single file' }
+        },
+        required: ['file_path', 'patch']
+      }
+    },
+    execute: async (input, ctx) => {
+      const resolvedPath = resolveToolPath(input.file_path, ctx.workingFolder)
+      const content = await fs.promises.readFile(resolvedPath, 'utf8')
+      const patch = String(input.patch ?? '')
+      if (!patch.trim()) {
+        return encodeToolError('patch must be non-empty')
+      }
+
+      try {
+        const applied = applyPatchEdit(content, patch)
+        await fs.promises.writeFile(resolvedPath, applied.updated, 'utf8')
+        return encodeStructuredToolResult({
+          success: true,
+          path: resolvedPath,
+          matchMode: applied.matchMode,
+          hunkCount: applied.hunkCount
+        })
+      } catch (error) {
+        return encodeToolError(error instanceof Error ? error.message : String(error))
+      }
     }
   }
 
@@ -2490,6 +2958,7 @@ function buildToolHandlers(): Record<string, ToolHandler> {
     Read: readHandler,
     Write: writeHandler,
     Edit: editHandler,
+    PatchEdit: patchEditHandler,
     LS: lsHandler,
     Glob: globHandler,
     Grep: grepHandler,
@@ -2597,9 +3066,7 @@ function appendToolResult(
   })
 }
 
-function toPersistedMessages(
-  messages: UnifiedMessage[]
-): Array<{
+function toPersistedMessages(messages: UnifiedMessage[]): Array<{
   id: string
   role: string
   content: unknown
@@ -2768,19 +3235,212 @@ function emitRunLog(
   safeSendToAllWindows('cron:run-log-appended', { jobId, ...entry })
 }
 
-function emitRunFinished(payload: {
+function loadRunSnapshot(runId: string): {
+  id: string
   jobId: string
-  runId: string
-  status: 'success' | 'error' | 'aborted'
+  startedAt: number
+  finishedAt: number | null
+  status: 'running' | 'success' | 'error' | 'aborted'
   toolCallCount: number
-  jobName?: string
-  sessionId?: string | null
-  deliveryMode?: string
-  deliveryTarget?: string | null
-  outputSummary?: string
-  error?: string
-}): void {
-  safeSendToAllWindows('cron:run-finished', payload)
+  outputSummary: string | null
+  error: string | null
+  scheduledFor: number | null
+  jobNameSnapshot: string | null
+  promptSnapshot: string | null
+  sourceSessionIdSnapshot: string | null
+  sourceSessionTitleSnapshot: string | null
+  sourceProjectIdSnapshot: string | null
+  sourceProjectNameSnapshot: string | null
+  sourceProviderIdSnapshot: string | null
+  modelSnapshot: string | null
+  workingFolderSnapshot: string | null
+  deliveryModeSnapshot: string | null
+  deliveryTargetSnapshot: string | null
+} | null {
+  const db = getDb()
+  const row = db
+    .prepare(
+      `SELECT id, job_id, started_at, finished_at, status, tool_call_count, output_summary, error,
+              scheduled_for, job_name_snapshot, prompt_snapshot,
+              source_session_id_snapshot, source_session_title_snapshot,
+              source_project_id_snapshot, source_project_name_snapshot, source_provider_id_snapshot,
+              model_snapshot, working_folder_snapshot, delivery_mode_snapshot, delivery_target_snapshot
+         FROM cron_runs WHERE id = ? LIMIT 1`
+    )
+    .get(runId) as
+    | {
+        id: string
+        job_id: string
+        started_at: number
+        finished_at: number | null
+        status: 'running' | 'success' | 'error' | 'aborted'
+        tool_call_count: number
+        output_summary: string | null
+        error: string | null
+        scheduled_for: number | null
+        job_name_snapshot: string | null
+        prompt_snapshot: string | null
+        source_session_id_snapshot: string | null
+        source_session_title_snapshot: string | null
+        source_project_id_snapshot: string | null
+        source_project_name_snapshot: string | null
+        source_provider_id_snapshot: string | null
+        model_snapshot: string | null
+        working_folder_snapshot: string | null
+        delivery_mode_snapshot: string | null
+        delivery_target_snapshot: string | null
+      }
+    | undefined
+
+  if (!row) return null
+
+  return {
+    id: row.id,
+    jobId: row.job_id,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    status: row.status,
+    toolCallCount: row.tool_call_count,
+    outputSummary: row.output_summary,
+    error: row.error,
+    scheduledFor: row.scheduled_for,
+    jobNameSnapshot: row.job_name_snapshot,
+    promptSnapshot: row.prompt_snapshot,
+    sourceSessionIdSnapshot: row.source_session_id_snapshot,
+    sourceSessionTitleSnapshot: row.source_session_title_snapshot,
+    sourceProjectIdSnapshot: row.source_project_id_snapshot,
+    sourceProjectNameSnapshot: row.source_project_name_snapshot,
+    sourceProviderIdSnapshot: row.source_provider_id_snapshot,
+    modelSnapshot: row.model_snapshot,
+    workingFolderSnapshot: row.working_folder_snapshot,
+    deliveryModeSnapshot: row.delivery_mode_snapshot,
+    deliveryTargetSnapshot: row.delivery_target_snapshot
+  }
+}
+
+function loadJobSnapshot(jobId: string): {
+  id: string
+  sessionId: string | null
+  name: string
+  schedule: { kind: 'at' | 'every' | 'cron'; at: number | null; every: number | null; expr: string | null; tz: string }
+  prompt: string
+  agentId: string | null
+  model: string | null
+  workingFolder: string | null
+  deliveryMode: string
+  deliveryTarget: string | null
+  pluginId: string | null
+  pluginChatId: string | null
+  enabled: boolean
+  deleteAfterRun: boolean
+  maxIterations: number
+  deletedAt: number | null
+  lastFiredAt: number | null
+  fireCount: number
+  createdAt: number
+  updatedAt: number
+  sourceSessionTitle: string | null
+  sourceProjectId: string | null
+  sourceProjectName: string | null
+  sourceProviderId: string | null
+  scheduled: boolean
+  executing: boolean
+  executionStartedAt: number | null
+  executionProgress: { iteration: number; toolCalls: number; currentStep?: string } | null
+} | null {
+  const db = getDb()
+  const row = db
+    .prepare(
+      `SELECT id, session_id, name, schedule_kind, schedule_at, schedule_every, schedule_expr, schedule_tz,
+              prompt, agent_id, model, working_folder, delivery_mode, delivery_target,
+              plugin_id, plugin_chat_id, enabled, delete_after_run, max_iterations, deleted_at,
+              last_fired_at, fire_count, created_at, updated_at,
+              source_session_title, source_project_id, source_project_name, source_provider_id
+         FROM cron_jobs WHERE id = ? LIMIT 1`
+    )
+    .get(jobId) as
+    | {
+        id: string
+        session_id: string | null
+        name: string
+        schedule_kind: 'at' | 'every' | 'cron'
+        schedule_at: number | null
+        schedule_every: number | null
+        schedule_expr: string | null
+        schedule_tz: string
+        prompt: string
+        agent_id: string | null
+        model: string | null
+        working_folder: string | null
+        delivery_mode: string
+        delivery_target: string | null
+        plugin_id: string | null
+        plugin_chat_id: string | null
+        enabled: number
+        delete_after_run: number
+        max_iterations: number
+        deleted_at: number | null
+        last_fired_at: number | null
+        fire_count: number
+        created_at: number
+        updated_at: number
+        source_session_title: string | null
+        source_project_id: string | null
+        source_project_name: string | null
+        source_provider_id: string | null
+      }
+    | undefined
+
+  if (!row) return null
+
+  const runtimeState = executionState.get(jobId)
+
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    name: row.name,
+    schedule: {
+      kind: row.schedule_kind,
+      at: row.schedule_at,
+      every: row.schedule_every,
+      expr: row.schedule_expr,
+      tz: row.schedule_tz
+    },
+    prompt: row.prompt,
+    agentId: row.agent_id,
+    model: row.model,
+    workingFolder: row.working_folder,
+    deliveryMode: row.delivery_mode,
+    deliveryTarget: row.delivery_target,
+    pluginId: row.plugin_id,
+    pluginChatId: row.plugin_chat_id,
+    enabled: Boolean(row.enabled),
+    deleteAfterRun: Boolean(row.delete_after_run),
+    maxIterations: row.max_iterations,
+    deletedAt: row.deleted_at,
+    lastFiredAt: row.last_fired_at,
+    fireCount: row.fire_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    sourceSessionTitle: row.source_session_title,
+    sourceProjectId: row.source_project_id,
+    sourceProjectName: row.source_project_name,
+    sourceProviderId: row.source_provider_id,
+    scheduled: false,
+    executing: false,
+    executionStartedAt: runtimeState?.startedAt ?? null,
+    executionProgress: runtimeState?.progress ?? null
+  }
+}
+
+function emitRunFinished(payload: CronRunFinishedPayload): void {
+  const run = loadRunSnapshot(payload.runId)
+  const job = loadJobSnapshot(payload.jobId)
+  safeSendToAllWindows('cron:run-finished', {
+    ...payload,
+    ...(run ? { run } : {}),
+    ...(job ? { job } : {})
+  })
 }
 
 export function getCronExecutionState(jobId: string): ExecutionState | null {

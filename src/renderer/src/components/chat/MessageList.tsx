@@ -75,17 +75,21 @@ interface RenderableMetaBuildResult {
   items: RenderableMessageMeta[]
 }
 
+type ToolResultsLookup = Map<string, { content: ToolResultContent; isError?: boolean }>
+
 type VirtualRow =
   | { type: 'load-more'; key: string }
   | { type: 'message'; key: string; data: RenderableMessage }
 
 interface VirtualMessageRowProps {
   rowIndex: number
-  messageId: string
+  message: UnifiedMessage
+  isStreaming: boolean
   isLastUserMessage: boolean
   isLastAssistantMessage: boolean
   showContinue: boolean
   disableAnimation: boolean
+  toolResults?: ToolResultsLookup
   onRetry?: () => void
   onContinue?: () => void
   onEditUserMessage?: (messageId: string, draft: EditableUserMessageDraft) => void
@@ -229,39 +233,23 @@ function getDistanceToBottom(ref: VListHandle): number {
 
 const VirtualMessageRow = React.memo(function VirtualMessageRow({
   rowIndex,
-  messageId,
+  message,
+  isStreaming,
   isLastUserMessage,
   isLastAssistantMessage,
   showContinue,
   disableAnimation,
+  toolResults,
   onRetry,
   onContinue,
   onEditUserMessage,
   onDeleteMessage
-}: VirtualMessageRowProps): React.JSX.Element | null {
-  const { activeMessages, isStreaming } = useChatStore(
-    useShallow((s) => {
-      const activeSession = s.sessions.find((session) => session.id === s.activeSessionId)
-      return {
-        activeMessages: activeSession?.messages ?? EMPTY_MESSAGES,
-        isStreaming: s.streamingMessageId === messageId
-      }
-    })
-  )
-
-  const message = React.useMemo(() => getMessageLookup(activeMessages).get(messageId) ?? null, [activeMessages, messageId])
-  const toolResults = React.useMemo(
-    () => getToolResultsLookup(activeMessages).get(messageId),
-    [activeMessages, messageId]
-  )
-
-  if (!message) return null
-
+}: VirtualMessageRowProps): React.JSX.Element {
   return (
     <div data-index={rowIndex} className="mx-auto max-w-3xl px-4 pb-6">
       <MessageItem
         message={message}
-        messageId={messageId}
+        messageId={message.id}
         isStreaming={isStreaming}
         isLastUserMessage={isLastUserMessage}
         isLastAssistantMessage={isLastAssistantMessage}
@@ -328,6 +316,8 @@ export function MessageList({
     () => buildRenderableMessageMeta(messages, streamingMessageId),
     [messages, streamingMessageId]
   )
+  const messageLookup = React.useMemo(() => getMessageLookup(messages), [messages])
+  const toolResultsLookup = React.useMemo(() => getToolResultsLookup(messages), [messages])
 
   const continueAssistantMessageId = React.useMemo(() => {
     if (streamingMessageId || isSessionRunning) return null
@@ -380,8 +370,8 @@ export function MessageList({
 
   const streamingMessageSignal = React.useMemo(() => {
     if (!streamingMessageId) return ''
-    return getMessageTailSignal(getMessageLookup(messages).get(streamingMessageId))
-  }, [messages, streamingMessageId])
+    return getMessageTailSignal(messageLookup.get(streamingMessageId))
+  }, [messageLookup, streamingMessageId])
 
   const latestRealUserCreatedAt = React.useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -737,6 +727,10 @@ export function MessageList({
             }
 
             const { messageId, isLastUserMessage, isLastAssistantMessage, showContinue } = row.data
+            const message = messageLookup.get(messageId)
+            if (!message) {
+              return <div key={rowKey} />
+            }
             const disableAnimation =
               lastMessageRowIndex >= 0
                 ? rowIndex >= Math.max(0, lastMessageRowIndex - (TAIL_STATIC_MESSAGE_COUNT - 1))
@@ -746,11 +740,13 @@ export function MessageList({
               <VirtualMessageRow
                 key={rowKey}
                 rowIndex={rowIndex}
-                messageId={messageId}
+                message={message}
+                isStreaming={streamingMessageId === messageId}
                 isLastUserMessage={isLastUserMessage}
                 isLastAssistantMessage={isLastAssistantMessage}
                 showContinue={showContinue}
                 disableAnimation={disableAnimation}
+                toolResults={toolResultsLookup.get(messageId)}
                 onRetry={onRetry}
                 onContinue={onContinue}
                 onEditUserMessage={onEditUserMessage}

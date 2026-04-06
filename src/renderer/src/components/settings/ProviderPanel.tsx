@@ -884,24 +884,38 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
   const formatResetAt = (value?: string): string | null => {
     if (!value) return null
     const trimmed = value.trim()
+    if (!trimmed) return null
+    if (['invalid date', 'null', 'undefined', 'nan'].includes(trimmed.toLowerCase())) return null
+
+    const tryParse = (input: string | number): Date | null => {
+      const candidate = new Date(input)
+      return Number.isNaN(candidate.getTime()) ? null : candidate
+    }
+
     let parsed: Date | null = null
 
     if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
       const numericValue = Number(trimmed)
       if (Number.isFinite(numericValue)) {
         const timestamp = numericValue < 1e12 ? numericValue * 1000 : numericValue
-        const candidate = new Date(timestamp)
-        if (!Number.isNaN(candidate.getTime())) {
-          parsed = candidate
-        }
+        parsed = tryParse(timestamp)
       }
     }
 
     if (!parsed) {
-      const candidate = new Date(trimmed)
-      if (Number.isNaN(candidate.getTime())) return value
-      parsed = candidate
+      const normalized = trimmed
+        .replace(/\[(?:[^\]]+)\]$/, '')
+        .replace(
+          /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)$/,
+          '$1T$2'
+        )
+        .replace(/(\.\d{3})\d+(?=(?:Z|[+-]\d{2}:?\d{2})$)/i, '$1')
+        .replace(/ UTC$/i, 'Z')
+
+      parsed = tryParse(trimmed) ?? (normalized !== trimmed ? tryParse(normalized) : null)
     }
+
+    if (!parsed) return null
 
     const year = parsed.getFullYear()
     const month = String(parsed.getMonth() + 1).padStart(2, '0')

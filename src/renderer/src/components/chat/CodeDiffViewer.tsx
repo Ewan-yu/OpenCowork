@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@renderer/lib/utils'
 import { MONO_FONT } from '@renderer/lib/constants'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 
 export type DiffViewerLine = {
   type: 'keep' | 'add' | 'del'
@@ -61,8 +62,10 @@ export function CodeDiffViewer({
   toolbarEnd
 }: CodeDiffViewerProps): React.JSX.Element {
   const { t } = useTranslation('chat')
+  const persistedViewMode = useSettingsStore((state) => state.fileDiffViewMode)
+  const updateSettings = useSettingsStore((state) => state.updateSettings)
   const [expandedChunks, setExpandedChunks] = React.useState<Set<number>>(new Set())
-  const [viewMode, setViewMode] = React.useState<'split' | 'inline'>(defaultMode)
+  const viewMode = persistedViewMode ?? defaultMode
 
   React.useEffect(() => {
     setExpandedChunks(new Set())
@@ -156,7 +159,7 @@ export function CodeDiffViewer({
         <div className="inline-flex items-center rounded-md border bg-background/60 p-0.5 text-[10px]">
           <button
             type="button"
-            onClick={() => setViewMode('split')}
+            onClick={() => updateSettings({ fileDiffViewMode: 'split' })}
             className={cn(
               'rounded px-2 py-1 transition-colors',
               viewMode === 'split'
@@ -168,7 +171,7 @@ export function CodeDiffViewer({
           </button>
           <button
             type="button"
-            onClick={() => setViewMode('inline')}
+            onClick={() => updateSettings({ fileDiffViewMode: 'inline' })}
             className={cn(
               'rounded px-2 py-1 transition-colors',
               viewMode === 'inline'
