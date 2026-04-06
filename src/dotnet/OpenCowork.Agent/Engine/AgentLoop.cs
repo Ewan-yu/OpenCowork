@@ -324,6 +324,21 @@ public static class AgentLoop
                 yield break;
             }
 
+            foreach (var tc in toolCalls)
+            {
+                if (tc.Input.Count == 0 && activeToolArgs.TryGetValue(tc.Id, out var finalArgBuf) && finalArgBuf.Length > 0)
+                {
+                    tc.Input = ProviderMessageFormatter.ParseToolInputObject(finalArgBuf.ToString());
+                    yield return new ToolUseGeneratedEvent
+                    {
+                        Id = tc.Id,
+                        Name = tc.Name,
+                        Input = tc.Input,
+                        ExtraContent = tc.ExtraContent
+                    };
+                }
+            }
+
             // --- Execute tool calls (PARALLEL - key perf improvement) ---
             var toolResults = new ContentBlock[toolCalls.Count];
 

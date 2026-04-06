@@ -169,8 +169,17 @@ public sealed class OpenAiChatChoice
     [JsonPropertyName("delta")]
     public OpenAiChatDelta? Delta { get; init; }
 
+    [JsonPropertyName("message")]
+    public OpenAiChatMessage? Message { get; init; }
+
     [JsonPropertyName("finish_reason")]
     public string? FinishReason { get; init; }
+}
+
+public sealed class OpenAiChatMessage
+{
+    [JsonPropertyName("tool_calls")]
+    public List<OpenAiToolCallDelta>? ToolCalls { get; init; }
 }
 
 public sealed class OpenAiChatDelta

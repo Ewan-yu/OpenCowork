@@ -85,6 +85,7 @@ public sealed class OpenAiChatProvider : ILlmProvider
         var startedToolKeys = new HashSet<string>();
         var toolKeysByIndex = new Dictionary<int, string>();
         var toolKeysById = new Dictionary<string, string>(StringComparer.Ordinal);
+        var toolKeysWithoutIndex = new HashSet<string>(StringComparer.Ordinal);
         var syntheticToolKeyCounter = 0;
         string? lastGoogleThinkingSignature = null;
 
@@ -93,18 +94,40 @@ public sealed class OpenAiChatProvider : ILlmProvider
             if (!string.IsNullOrWhiteSpace(toolCall.Id))
             {
                 if (toolKeysById.TryGetValue(toolCall.Id, out var existingById))
+                {
+                    if (toolCall.Index.HasValue)
+                    {
+                        toolKeysByIndex[toolCall.Index.Value] = existingById;
+                        toolKeysWithoutIndex.Remove(existingById);
+                    }
+
                     return existingById;
+                }
 
                 if (toolCall.Index.HasValue && toolKeysByIndex.TryGetValue(toolCall.Index.Value, out var existingByIndex))
                 {
                     toolKeysById[toolCall.Id] = existingByIndex;
+                    toolKeysWithoutIndex.Remove(existingByIndex);
                     return existingByIndex;
+                }
+
+                if (!toolCall.Index.HasValue && toolKeysWithoutIndex.Count == 1)
+                {
+                    var inferredKey = toolKeysWithoutIndex.First();
+                    toolKeysById[toolCall.Id] = inferredKey;
+                    return inferredKey;
                 }
 
                 var keyById = $"id:{toolCall.Id}";
                 toolKeysById[toolCall.Id] = keyById;
                 if (toolCall.Index.HasValue)
+                {
                     toolKeysByIndex[toolCall.Index.Value] = keyById;
+                }
+                else
+                {
+                    toolKeysWithoutIndex.Add(keyById);
+                }
                 return keyById;
             }
 
@@ -113,13 +136,23 @@ public sealed class OpenAiChatProvider : ILlmProvider
                 if (toolKeysByIndex.TryGetValue(toolCall.Index.Value, out var existingByIndex))
                     return existingByIndex;
 
+                if (toolKeysWithoutIndex.Count == 1)
+                {
+                    var inferredKey = toolKeysWithoutIndex.First();
+                    toolKeysByIndex[toolCall.Index.Value] = inferredKey;
+                    toolKeysWithoutIndex.Remove(inferredKey);
+                    return inferredKey;
+                }
+
                 var keyByIndex = $"index:{toolCall.Index.Value}";
                 toolKeysByIndex[toolCall.Index.Value] = keyByIndex;
                 return keyByIndex;
             }
 
             syntheticToolKeyCounter++;
-            return $"synthetic:{syntheticToolKeyCounter}";
+            var syntheticKey = $"synthetic:{syntheticToolKeyCounter}";
+            toolKeysWithoutIndex.Add(syntheticKey);
+            return syntheticKey;
         }
         var isOpenAi = baseUrl.StartsWith("https://api.openai.com", StringComparison.OrdinalIgnoreCase)
             || baseUrl.StartsWith("http://api.openai.com", StringComparison.OrdinalIgnoreCase);
@@ -212,6 +245,7 @@ public sealed class OpenAiChatProvider : ILlmProvider
 
                 var choice = chunk.Choices[0];
                 var delta = choice.Delta;
+                var toolCallsFromMessage = choice.Message?.ToolCalls;
 
                 if (delta is not null)
                 {
@@ -333,6 +367,7 @@ public sealed class OpenAiChatProvider : ILlmProvider
                     startedToolKeys.Clear();
                     toolKeysByIndex.Clear();
                     toolKeysById.Clear();
+                    toolKeysWithoutIndex.Clear();
 
                     if (chunk.Usage is null)
                         ScheduleCompatTerminalClose();
@@ -350,6 +385,9 @@ public sealed class OpenAiChatProvider : ILlmProvider
                     toolArgs.Clear();
                     toolExtraContents.Clear();
                     startedToolKeys.Clear();
+                    toolKeysByIndex.Clear();
+                    toolKeysById.Clear();
+                    toolKeysWithoutIndex.Clear();
 
                     if (!emittedMessageEnd)
                     {
